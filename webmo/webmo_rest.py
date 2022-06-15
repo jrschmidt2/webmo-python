@@ -19,7 +19,7 @@ class WebMOREST:
         
         Args:
             base_url(str): The base URL (ending in rest.cgi) of the WeBMO rest endpoint
-            username(str): The WebMO usrname
+            username(str): The WebMO username
             password(str, optional): The WebMO password; if omitted, this is supplied interactively
             
         Returns:
@@ -38,14 +38,16 @@ class WebMOREST:
         self._auth=r.json() #save an authorization token need to authenticate future REST requests
         
     def __del__(self):
-        """Destuctor for WebMOREST
+        """Destructor for WebMOREST
         
         This destructor automatically deletes the session token using the REST interface
         """
         
         #End the REST ssessions
         r = requests.delete(self._base_url + '/sessions', params=self._auth)
-        r.raise_for_status() #raise an exception if there is a problem with the request
+        #do not raise an exception for a failed request in this case due to issues
+        #with object managment in Jupyter (i.e. on code re-run, a new token is made
+        #prior to deletion!)
     
     #
     # Users resource
@@ -68,7 +70,7 @@ class WebMOREST:
     def get_user_info(self, username):
         """Returns information about the specified user
         
-        This call returns a JSON formatted string summarize information about the requested user. For non-
+        This call returns a JSON formatted string summarizing information about the requested user. For non-
         administrative users, only requests for the authenticated user will be accepted.
         
         Arguments:
@@ -102,7 +104,7 @@ class WebMOREST:
     def get_group_info(self, groupname):
         """Returns information about the specified group
         
-        This call returns a JSON formatted string summarize information about the requested group. For non-
+        This call returns a JSON formatted string summarizing information about the requested group. For non-
         administrative users, only requests for the authenticated group will be accepted.
         
         Arguments:
@@ -126,8 +128,8 @@ class WebMOREST:
         This call returns a list of available folders. Administrative users must specify the target user,
         otherwise the folders owned by the current user are returned.
         
-        Arguemnts:
-            target_user(str, optional): The target username whose folders are retreived. Otherwise, uses the authenticated user.
+        Arguments:
+            target_user(str, optional): The target username whose folders are retrieved. Otherwise, uses the authenticated user.
         
         Returns:
             A list of folders
@@ -146,14 +148,14 @@ class WebMOREST:
     def get_jobs(self, engine="", status="", folder_id="", job_name="", target_user=""):
         """Fetches a list of jobs satisfying the specified filter criteria
         
-        This call returns a list of available jobs owned by the current user or (for adminstrative users)
+        This call returns a list of available jobs owned by the current user or (for administrative users)
         the specified target user AND the specified filter criteria.
         
-        Arguemnts:
+        Arguements:
             engine(str, optional): Filter by specified computational engine
             status(str, optional): Filter by job status
             folder_id(str, optional): Filter by folder ID (not name!)
-            target_user(str, optional): The target username whose jobs are retreived. Otherwise, uses the authenticated user.
+            target_user(str, optional): The target username whose jobs are retrieved. Otherwise, uses the authenticated user.
         
         Returns:
             A list of jobs meeting the specified criteria
@@ -208,7 +210,7 @@ class WebMOREST:
             job_number(int): The job about whom to return information
             
         Returns:
-            A string containing XYZ formatted optmized geometry
+            A string containing XYZ formatted optimized geometry
         """
         
         r = requests.get(self._base_url + "/jobs/%d/geometry" % job_number, params=self._auth)
@@ -281,10 +283,10 @@ class WebMOREST:
         r.raise_for_status()
         return r.json()["jobNumber"]
         
-    def execute_job(self, job_name, input_file_contents, engine):
+    def submit_job(self, job_name, input_file_contents, engine, queue=None):
         """Submits and executes a new WebMO job
         
-        This call submits and executes a new job to a computational enginge, generating a new WebMO job.
+        This call submits and executes a new job to a computational engine, generating a new WebMO job.
         
         Arguments:
             job_name(str): The name of the new WebMO job
@@ -296,7 +298,7 @@ class WebMOREST:
         """
         
         params = self._auth.copy()
-        params.update({'jobName' : job_name, 'engine' : engine, 'inputFile': input_file_contents})
+        params.update({'jobName' : job_name, 'engine' : engine, 'inputFile': input_file_contents, 'queue': queue})
         r = requests.post(self._base_url + '/jobs', data=params)
         r.raise_for_status()
         return r.json()["jobNumber"]
