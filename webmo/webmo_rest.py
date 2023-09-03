@@ -3,6 +3,12 @@ import json
 import time
 from getpass import getpass
 
+try:
+    from IPython.display import display, Javascript
+    has_ipython = True
+except ImportError:
+    has_ipython = False
+
 class WebMOREST:
     """The WebMOREST class provides an object-oriented Python API for the WebMO REST interface.
     
@@ -37,16 +43,21 @@ class WebMOREST:
         self._base_url = base_url
         self._auth=r.json() #save an authorization token need to authenticate future REST requests
         
+        self._init_javascript = True
+        if has_ipython:
+            self._inject_javascript()
+
+        
     def __del__(self):
         """Destructor for WebMOREST
         
         This destructor automatically deletes the session token using the REST interface
         """
         
-        #End the REST ssessions
+        #End the REST sessions
         r = requests.delete(self._base_url + '/sessions', params=self._auth)
         #do not raise an exception for a failed request in this case due to issues
-        #with object managment in Jupyter (i.e. on code re-run, a new token is made
+        #with object management in Jupyter (i.e. on code re-run, a new token is made
         #prior to deletion!)
     
     #
@@ -303,6 +314,105 @@ class WebMOREST:
         r.raise_for_status()
         return r.json()["jobNumber"]
         
+    def display_job_property(self, job_number, property_name, property_index=1, width=300, height=300, background_color=(255,255,255), rotate=(0.,0.,0.)):
+        """Uses Javascript and IPython to display and image of the specified molecule and property,
+        calculated from a previous WebMO job.
+        
+        This call outputs (via IPython) a PNG-formatted image of the molecule and property into the
+        Jupyter notebook cell. Requires IPython and WebMO 24 or higher.
+        
+        Arguments:
+            job_number(int): The job about whom to return information
+            property_name(str): The name of the property to display. Must be one of 'geometry', 'dipole_moment', partial_charges', 'vibrational_mode', 'mo' (molecular orbital), 'esp' (electrostatic potential), 'nucleophilic', 'electrophilic', 'radical', 'nbo' (natural bonding orbital), 'nho' (natural hybrid orbital), 'nao' (natural atomic orbital)
+            property_index(int, optional): The 1-based index of the property to display, e.g. which vibrational or orbital
+            width(int, optional): The approximate width (in pixels) of the image to display
+            height(int, optional): The approximate height (in pixels) of the image to display
+            background_color(int,int,int,optional): A tuple specifying the (r,g,b) color of the background, where each color intensity is [0,255]
+            rotation(int,int,int,optional): A tuple specifying the desired rotation (in degrees) of the molecule about the x,y,z axes about the "default" orientation
+
+            
+        Returns:
+            None
+        """
+        
+        self._check_ipython()
+                
+        r = requests.get(self._base_url + "/jobs/%d/geometry" % job_number, params=self._auth)
+        r.raise_for_status()
+        geometryJSON = json.dumps(r.json())
+        geometryJSON = geometryJSON.replace("\\", "\\\\")
+        
+        results = self.get_job_results(job_number)
+        
+        self._set_moledit_size(width,height)
+        self._set_moledit_background(background_color[0],background_color[1],background_color[2])
+        self._set_moledit_geometry(geometryJSON)
+        
+        if property_index <= 0:
+            raise ValueError("Invalid property_index specified")
+        
+        property_string = ""
+        WAVEFUNCTION_PROPERTIES = ["mo", "nao", "nho", "nbo", "esp", "nucleophilic", "electrophilic", "radical"]
+        SURFACE_PROPERTIES = ["esp", "nucleophilic", "electrophilic", "radical"]
+        if property_name == "geometry":
+            #do nothing special
+            pass
+
+        elif property_name == "dipole_moment":
+            dipole_moment = results['properties']['dipole_moment']
+            total_dipole = math.sqrt(dipole_moment[0]**2 + dipole_moment[1]**2 + dipole_moment[2]**2)
+            property_string = "%f:%f:%f:%f" % (*dipole_moment,total_dipole)
+            self._set_moledit_dipole_moment(property_string)
+            
+        elif property_name == "partial_charges":
+            partial_charges = results['properties']['partial_charges']['mulliken']
+            for i in range(len(partial_charges)):
+                property_string += "%d,X,%f:" % (i+1,partial_charges[i])
+            property_string = property_string.rstrip(":")
+            self._set_moledit_partial_charge(property_string)
+            
+        elif property_name == "vibrational_mode":
+            frequency = results['properties']['vibrations']['frequencies'][property_index-1]
+            displacements = results['properties']['vibrations']['displacement'][property_index-1]
+            for i in range(len(displacements)//3):
+                property_string += "%d,%f,%f,%f:" % (i+1,displacements[i*3+0],displacements[i*3+1],displacements[i*3+2])
+            property_string = property_string.rstrip(":")
+            self._set_moledit_vibrational_mode(property_string, property_index, frequency, 1.0)
+            
+        elif property_name in WAVEFUNCTION_PROPERTIES:
+            if property_name in SURFACE_PROPERTIES:
+                property_index = 0 #this is required
+            self._rotate_moledit_view(rotate[0],rotate[1],rotate[2])
+            self._set_moledit_wavefunction(job_number, property_name, property_index) #handles screenshot in callback
+            
+        else:
+            raise ValueError("Invalid property_name specified")
+        
+        if not property_name in WAVEFUNCTION_PROPERTIES:
+            #these are already done in the setWavefunction callback
+            self._rotate_moledit_view(rotate[0],rotate[1],rotate[2])
+            self._display_moledit_screenshot()
+
+        
+    #
+    # Status resource
+    #
+    def get_status_info(self):
+        """Returns information about the specified WebMO instance
+        
+        This call returns a JSON formatted string summarizing basic status information about the specified WebMO instance.
+        
+        Arguments:
+            None
+            
+        Returns:
+            A JSON formatted string summarizing the status information
+        """
+        
+        r = requests.get(self._base_url + "/status", params=self._auth)
+        r.raise_for_status()
+        return r.json()
+        
         
     #
     # Helper functions
@@ -345,4 +455,64 @@ class WebMOREST:
             if not done:
                 time.sleep(poll_frequency)
             
-
+    #
+    # Private helper methods
+    #
+    
+    def _inject_javascript(self):
+        if self._init_javascript:
+            config = self.get_status_info()
+            major_version = int(config["version"].split(".")[0])
+            
+            #ensure WebMO support as well, otherwise disable IPython features
+            if major_version < 24:
+                global has_ipython
+                has_ipython = False
+                return
+                
+            try:
+                ipython = get_ipython()
+                ipython.run_cell_magic("html", "", "\
+                <script src='%s/javascript/moledit_js/moledit_js.nocache.js'></script>\
+                <script src='%s/javascript/jupyter_moledit.js'></script>\
+                <script>\
+                    if(document.getElementById('moledit-panel'))\
+                        document.getElementById('moledit-panel').remove();\
+                    moledit_div = document.createElement('div');\
+                    moledit_div.innerHTML = \"<DIV ID='moledit-panel' CLASS='gwt-app' STYLE='width:300px; height:300px; visibility: hidden; position: absolute' orbitalSrc='%s/get_orbital.cgi' viewOnly='true'></div>\";\
+                    document.body.prepend(moledit_div);\
+                </script>" % (config['url_html'], config['url_html'], config['url_cgi']))
+                self._init_javascript = False
+            except:
+                has_ipython = False
+            	        	
+    def _check_ipython(self):
+        if not has_ipython:
+            raise NotImplementedError("IPython and WebMO 24+ are required for this feature")
+        
+    def _set_moledit_geometry(self,geometryJSON):
+        display(Javascript("_set_moledit_geometry('%s')" % geometryJSON))
+        
+    def _set_moledit_dipole_moment(self, value):
+        display(Javascript("_set_moledit_dipole_moment('%s')" % value))
+        
+    def _set_moledit_partial_charge(self, value):
+        display(Javascript("_set_moledit_partial_charge('%s')" % value))
+        
+    def _set_moledit_vibrational_mode(self, value, mode, freq, scale):
+        display(Javascript("_set_moledit_vibrational_mode('%s', %d, %f, %f)" % (value, mode, freq, scale)))
+    
+    def _set_moledit_wavefunction(self, job_number, wavefunction_type, mo_index):
+        display(Javascript('_set_moledit_wavefunction(%d,\"%s\", %d, element)' % (job_number, wavefunction_type, mo_index)))
+        
+    def _set_moledit_size(self,width,height):
+        display(Javascript("_set_moledit_size(%d,%d)" % (width, height)))
+        
+    def _set_moledit_background(self,r,g,b):
+        display(Javascript("_set_moledit_background(%d,%d,%d)" % (r, g, b)))
+        
+    def _rotate_moledit_view(self,rx,ry,rz):
+        display(Javascript("_rotate_moledit_view(%f,%f,%f)" % (rx, ry, rz)))
+            
+    def _display_moledit_screenshot(self):
+        display(Javascript('_display_moledit_screenshot(element)'));
