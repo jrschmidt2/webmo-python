@@ -328,7 +328,7 @@ class WebMOREST:
             width(int, optional): The approximate width (in pixels) of the image to display
             height(int, optional): The approximate height (in pixels) of the image to display
             background_color(int,int,int,optional): A tuple specifying the (r,g,b) color of the background, where each color intensity is [0,255]
-            rotation(int,int,int,optional): A tuple specifying the desired rotation (in degrees) of the molecule about the x,y,z axes about the "default" orientation
+            rotate(int,int,int,optional): A tuple specifying the desired rotation (in degrees) of the molecule about the x,y,z axes about the "default" orientation
 
             
         Returns:
