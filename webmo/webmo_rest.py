@@ -314,7 +314,7 @@ class WebMOREST:
         r.raise_for_status()
         return r.json()["jobNumber"]
         
-    def display_job_property(self, job_number, property_name, property_index=1, width=300, height=300, background_color=(255,255,255), rotate=(0.,0.,0.)):
+    def display_job_property(self, job_number, property_name, property_index=1, width=300, height=300, background_color=(255,255,255), rotate=(0.,0.,0.), filename=None):
         """Uses Javascript and IPython to display and image of the specified molecule and property,
         calculated from a previous WebMO job.
         
@@ -336,6 +336,12 @@ class WebMOREST:
         """
         
         self._check_ipython()
+
+        #clean up the filename; None cannot be used since this must interact with Javascript
+        if filename is None:
+            filename = ""
+        elif not filename.endswith(".png"):
+            filename += ".png"
                 
         r = requests.get(self._base_url + "/jobs/%d/geometry" % job_number, params=self._auth)
         r.raise_for_status()
@@ -383,7 +389,7 @@ class WebMOREST:
             if property_name in SURFACE_PROPERTIES:
                 property_index = 0 #this is required
             javascript_string += self._rotate_moledit_view(rotate[0],rotate[1],rotate[2])
-            javascript_string += self._set_moledit_wavefunction(job_number, property_name, property_index) #handles screenshot in callback
+            javascript_string += self._set_moledit_wavefunction(job_number, property_name, property_index, filename) #handles screenshot in callback
             
         else:
             raise ValueError("Invalid property_name specified")
@@ -391,7 +397,7 @@ class WebMOREST:
         if not property_name in WAVEFUNCTION_PROPERTIES:
             #these are already done in the setWavefunction callback
             javascript_string += self._rotate_moledit_view(rotate[0],rotate[1],rotate[2])
-            javascript_string += self._display_moledit_screenshot()
+            javascript_string += self._display_moledit_screenshot(filename)
 
         display(Javascript("_call_when_ready(function(){%s})" % javascript_string))
 
@@ -483,6 +489,7 @@ class WebMOREST:
                     moledit_div = document.createElement('div');\
                     moledit_div.innerHTML = \"<DIV ID='moledit-panel' CLASS='gwt-app' STYLE='width:300px; height:300px; visibility: hidden; position: absolute' orbitalSrc='%s/get_orbital.cgi' viewOnly='true'></div>\";\
                     document.body.prepend(moledit_div);\
+                    window.moledit_init_time = Date.now();\
                     function _call_when_ready(func) {\
                         const ready = document.getElementById('moledit-panel').children.length > 0;\
                         if (!ready) {\
@@ -512,8 +519,8 @@ class WebMOREST:
     def _set_moledit_vibrational_mode(self, value, mode, freq, scale):
         return "_set_moledit_vibrational_mode('%s', %d, %f, %f);" % (value, mode, freq, scale)
     
-    def _set_moledit_wavefunction(self, job_number, wavefunction_type, mo_index):
-        return "_set_moledit_wavefunction(%d,'%s', %d, element);" % (job_number, wavefunction_type, mo_index)
+    def _set_moledit_wavefunction(self, job_number, wavefunction_type, mo_index, filename):
+        return "_set_moledit_wavefunction(%d,'%s', %d, element, '%s');" % (job_number, wavefunction_type, mo_index, filename)
         
     def _set_moledit_size(self,width,height):
         return "_set_moledit_size(%d,%d);" % (width, height)
@@ -524,5 +531,5 @@ class WebMOREST:
     def _rotate_moledit_view(self,rx,ry,rz):
          return "_rotate_moledit_view(%f,%f,%f);" % (rx, ry, rz)
             
-    def _display_moledit_screenshot(self):
-        return "_display_moledit_screenshot(element, 'test.png');"
+    def _display_moledit_screenshot(self, filename):
+        return "_display_moledit_screenshot(element, '%s');" % filename
