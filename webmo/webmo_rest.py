@@ -344,9 +344,9 @@ class WebMOREST:
         
         results = self.get_job_results(job_number)
         
-        self._set_moledit_size(width,height)
-        self._set_moledit_background(background_color[0],background_color[1],background_color[2])
-        self._set_moledit_geometry(geometryJSON)
+        javascript_string = self._set_moledit_size(width,height)
+        javascript_string += self._set_moledit_background(background_color[0],background_color[1],background_color[2])
+        javascript_string += self._set_moledit_geometry(geometryJSON)
         
         if property_index <= 0:
             raise ValueError("Invalid property_index specified")
@@ -362,14 +362,14 @@ class WebMOREST:
             dipole_moment = results['properties']['dipole_moment']
             total_dipole = math.sqrt(dipole_moment[0]**2 + dipole_moment[1]**2 + dipole_moment[2]**2)
             property_string = "%f:%f:%f:%f" % (*dipole_moment,total_dipole)
-            self._set_moledit_dipole_moment(property_string)
+            javascript_string += self._set_moledit_dipole_moment(property_string)
             
         elif property_name == "partial_charges":
             partial_charges = results['properties']['partial_charges']['mulliken']
             for i in range(len(partial_charges)):
                 property_string += "%d,X,%f:" % (i+1,partial_charges[i])
             property_string = property_string.rstrip(":")
-            self._set_moledit_partial_charge(property_string)
+            javascript_string += self._set_moledit_partial_charge(property_string)
             
         elif property_name == "vibrational_mode":
             frequency = results['properties']['vibrations']['frequencies'][property_index-1]
@@ -377,21 +377,23 @@ class WebMOREST:
             for i in range(len(displacements)//3):
                 property_string += "%d,%f,%f,%f:" % (i+1,displacements[i*3+0],displacements[i*3+1],displacements[i*3+2])
             property_string = property_string.rstrip(":")
-            self._set_moledit_vibrational_mode(property_string, property_index, frequency, 1.0)
+            javascript_string += self._set_moledit_vibrational_mode(property_string, property_index, frequency, 1.0)
             
         elif property_name in WAVEFUNCTION_PROPERTIES:
             if property_name in SURFACE_PROPERTIES:
                 property_index = 0 #this is required
-            self._rotate_moledit_view(rotate[0],rotate[1],rotate[2])
-            self._set_moledit_wavefunction(job_number, property_name, property_index) #handles screenshot in callback
+            javascript_string += self._rotate_moledit_view(rotate[0],rotate[1],rotate[2])
+            javascript_string += self._set_moledit_wavefunction(job_number, property_name, property_index) #handles screenshot in callback
             
         else:
             raise ValueError("Invalid property_name specified")
         
         if not property_name in WAVEFUNCTION_PROPERTIES:
             #these are already done in the setWavefunction callback
-            self._rotate_moledit_view(rotate[0],rotate[1],rotate[2])
-            self._display_moledit_screenshot()
+            javascript_string += self._rotate_moledit_view(rotate[0],rotate[1],rotate[2])
+            javascript_string += self._display_moledit_screenshot()
+
+        display(Javascript("_call_when_ready(function(){%s})" % javascript_string))
 
         
     #
@@ -481,6 +483,14 @@ class WebMOREST:
                     moledit_div = document.createElement('div');\
                     moledit_div.innerHTML = \"<DIV ID='moledit-panel' CLASS='gwt-app' STYLE='width:300px; height:300px; visibility: hidden; position: absolute' orbitalSrc='%s/get_orbital.cgi' viewOnly='true'></div>\";\
                     document.body.prepend(moledit_div);\
+                    function _call_when_ready(func) {\
+                        const ready = document.getElementById('moledit-panel').children.length > 0;\
+                        if (!ready) {\
+                            setTimeout(function() {_call_when_ready(func)}, 100);\
+                            return;\
+                        }\
+                        func();\
+                    }\
                 </script>" % (config['url_html'], config['url_html'], config['url_cgi']))
                 self._init_javascript = False
             except:
@@ -491,28 +501,28 @@ class WebMOREST:
             raise NotImplementedError("IPython and WebMO 24+ are required for this feature")
         
     def _set_moledit_geometry(self,geometryJSON):
-        display(Javascript("_set_moledit_geometry('%s')" % geometryJSON))
+        return "_set_moledit_geometry('%s');" % geometryJSON
         
     def _set_moledit_dipole_moment(self, value):
-        display(Javascript("_set_moledit_dipole_moment('%s')" % value))
+        return "_set_moledit_dipole_moment('%s');" % value
         
     def _set_moledit_partial_charge(self, value):
-        display(Javascript("_set_moledit_partial_charge('%s')" % value))
+        return "_set_moledit_partial_charge('%s');" % value
         
     def _set_moledit_vibrational_mode(self, value, mode, freq, scale):
-        display(Javascript("_set_moledit_vibrational_mode('%s', %d, %f, %f)" % (value, mode, freq, scale)))
+        return "_set_moledit_vibrational_mode('%s', %d, %f, %f);" % (value, mode, freq, scale)
     
     def _set_moledit_wavefunction(self, job_number, wavefunction_type, mo_index):
-        display(Javascript('_set_moledit_wavefunction(%d,\"%s\", %d, element)' % (job_number, wavefunction_type, mo_index)))
+        return "_set_moledit_wavefunction(%d,'%s', %d, element);" % (job_number, wavefunction_type, mo_index)
         
     def _set_moledit_size(self,width,height):
-        display(Javascript("_set_moledit_size(%d,%d)" % (width, height)))
+        return "_set_moledit_size(%d,%d);" % (width, height)
         
     def _set_moledit_background(self,r,g,b):
-        display(Javascript("_set_moledit_background(%d,%d,%d)" % (r, g, b)))
+        return "_set_moledit_background(%d,%d,%d);" % (r, g, b)
         
     def _rotate_moledit_view(self,rx,ry,rz):
-        display(Javascript("_rotate_moledit_view(%f,%f,%f)" % (rx, ry, rz)))
+         return "_rotate_moledit_view(%f,%f,%f);" % (rx, ry, rz)
             
     def _display_moledit_screenshot(self):
-        display(Javascript('_display_moledit_screenshot(element)'));
+        return "_display_moledit_screenshot(element, 'test.png');"
