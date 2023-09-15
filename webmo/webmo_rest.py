@@ -325,10 +325,11 @@ class WebMOREST:
             job_number(int): The job about whom to return information
             property_name(str): The name of the property to display. Must be one of 'geometry', 'dipole_moment', partial_charges', 'vibrational_mode', 'mo' (molecular orbital), 'esp' (electrostatic potential), 'nucleophilic', 'electrophilic', 'radical', 'nbo' (natural bonding orbital), 'nho' (natural hybrid orbital), 'nao' (natural atomic orbital)
             property_index(int, optional): The 1-based index of the property to display, e.g. which vibrational or orbital
-            width(int, optional): The approximate width (in pixels) of the image to display
-            height(int, optional): The approximate height (in pixels) of the image to display
+            width(int, optional): The approximate width (in pixels) of the image to display (defaults to 300px)
+            height(int, optional): The approximate height (in pixels) of the image to display (defaults to 300px)
             background_color(int,int,int,optional): A tuple specifying the (r,g,b) color of the background, where each color intensity is [0,255]
             rotate(int,int,int,optional): A tuple specifying the desired rotation (in degrees) of the molecule about the x,y,z axes about the "default" orientation
+            filename(str, optional): Request that the displayed image is downloaded as a PNG file of the specified filename
 
             
         Returns:
