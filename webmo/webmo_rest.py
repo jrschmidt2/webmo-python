@@ -1,6 +1,7 @@
 import requests
 import json
 import time
+import math
 from getpass import getpass
 
 try:
@@ -314,7 +315,7 @@ class WebMOREST:
         r.raise_for_status()
         return r.json()["jobNumber"]
         
-    def display_job_property(self, job_number, property_name, property_index=1, peak_width=0.0, tms_shift=0.0, proton_coupling=0.0, nmr_field=400.0, width=400, height=300, background_color=(255,255,255), rotate=(0.,0.,0.), filename=None):
+    def display_job_property(self, job_number, property_name, property_index=1, peak_width=0.0, tms_shift=0.0, proton_coupling=0.0, nmr_field=400.0, width=400, height=400, background_color=(255,255,255), rotate=(0.,0.,0.), filename=None):
         """Uses Javascript and IPython to display and image of the specified molecule and property,
         calculated from a previous WebMO job.
         
@@ -323,7 +324,7 @@ class WebMOREST:
         
         Arguments:
             job_number(int): The job about whom to return information
-            property_name(str): The name of the property to display. Must be one of 'geometry', 'dipole_moment', partial_charges', 'vibrational_mode', 'mo' (molecular orbital), 'esp' (electrostatic potential), 'nucleophilic', 'electrophilic', 'radical', 'nbo' (natural bonding orbital), 'nho' (natural hybrid orbital), 'nao' (natural atomic orbital), or various spectra ('ir_spectrum', 'raman_spectrum', 'vcd_spectrum', 'uvvis_spectrum', 'hnmr_spectrum', 'cnmr_spectrum')
+            property_name(str): The name of the property to display. Must be one of 'geometry', 'dipole_moment', 'partial_charges', 'vibrational_mode', 'mo' (molecular orbital), 'esp' (electrostatic potential), 'nucleophilic', 'electrophilic', 'radical', 'nbo' (natural bonding orbital), 'nho' (natural hybrid orbital), 'nao' (natural atomic orbital), or various spectra ('ir_spectrum', 'raman_spectrum', 'vcd_spectrum', 'uvvis_spectrum', 'hnmr_spectrum', 'cnmr_spectrum')
             property_index(int, optional): The 1-based index of the property to display, e.g. which vibrational or orbital
 
             peak_width(float, optional): The peak width to use for spectra; default is spectrum-type specific
