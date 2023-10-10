@@ -554,7 +554,7 @@ class WebMOREST:
                     document.body.prepend(moledit_div);\
                     window.moledit_init_time = Date.now();\
                     function _call_when_ready(func) {\
-                        const ready = document.getElementById('moledit-panel').children.length > 0 && document.getElementById('datagrapher-panel').children.length > 0;\
+                        const ready = document.getElementById('moledit-panel').children.length > 0 && document.getElementById('datagrapher-panel').children.length > 0 && _render_lock();\
                         if (!ready) {\
                             setTimeout(function() {_call_when_ready(func)}, 100);\
                             return;\
@@ -564,8 +564,21 @@ class WebMOREST:
                         }\
                         catch(e) {\
                             console.log(e);\
+                            _clear_lock();\
                             setTimeout(function() {_call_when_ready(func)}, 1000);\
                         }\
+                    }\
+                    function _render_lock() {\
+                        if (window.render_lock > 0 && Date.now() - window.render_lock < 5000) {\
+                            return false;\
+                        }\
+                        else {\
+                            window.render_lock = Date.now();\
+                            return true;\
+                        }\
+                    }\
+                    function _clear_lock() {\
+                        window.render_lock = 0;\
                     }\
                 </script>" % (config['url_html'], config['url_html'], config['url_html'], config['url_cgi']))
                 self._init_javascript = False
