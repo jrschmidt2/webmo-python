@@ -552,7 +552,6 @@ class WebMOREST:
                     moledit_div = document.createElement('div');\
                     moledit_div.innerHTML = \"<DIV ID='moledit-panel' CLASS='gwt-app' STYLE='width:300px; height:300px; visibility: hidden; position: absolute' orbitalSrc='%s/get_orbital.cgi' viewOnly='true' isJupyter='true'></DIV><DIV ID='datagrapher-panel' CLASS='gwt-app' STYLE='width: 300px; height: 300px; visibility: hidden; position: absolute'></DIV>\";\
                     document.body.prepend(moledit_div);\
-                    window.moledit_init_time = Date.now();\
                     function _call_when_ready(func) {\
                         const ready = document.getElementById('moledit-panel').children.length > 0 && document.getElementById('datagrapher-panel').children.length > 0 && _render_lock();\
                         if (!ready) {\
@@ -602,7 +601,7 @@ class WebMOREST:
         return "_set_moledit_vibrational_mode('%s', %d, %f, %f);" % (value, mode, freq, scale)
     
     def _set_moledit_wavefunction(self, job_number, wavefunction_type, mo_index, filename):
-        return "_set_moledit_wavefunction(%d,'%s', %d, element, '%s');" % (job_number, wavefunction_type, mo_index, filename)
+        return "_set_moledit_wavefunction(%d,'%s', %d, element, '%s', %ld);" % (job_number, wavefunction_type, mo_index, filename, time.time()*1000)
         
     def _set_datagrapher_ir_spectrum(self, value, peak_width):
         return "_set_datagrapher_ir_spectrum('%s', %f);" % (value, peak_width)
@@ -632,7 +631,7 @@ class WebMOREST:
          return "_rotate_moledit_view(%f,%f,%f);" % (rx, ry, rz)
             
     def _display_moledit_screenshot(self, filename):
-        return "_display_moledit_screenshot(element, '%s');" % filename
+        return "_display_moledit_screenshot(element, '%s', %ld);" % (filename, time.time()*1000)
 
     def _display_datagrapher_screenshot(self, filename):
-        return "_display_datagrapher_screenshot(element, '%s');" % filename
+        return "_display_datagrapher_screenshot(element, '%s', %ld);" % (filename, time.time()*1000)
