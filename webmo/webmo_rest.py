@@ -1,11 +1,9 @@
 import requests
 import json
-import time
-import math
-from getpass import getpass
+import asyncio
 
 try:
-    from IPython.display import display, Javascript
+    from IPython.display import display, clear_output, Javascript, Image
     has_ipython = True
 except ImportError:
     has_ipython = False
@@ -32,6 +30,7 @@ class WebMOREST:
         Returns:
             object: The newly constructed WebMO object
         """
+        from getpass import getpass
         
         #prompt for WebMO password if not specified
         if not password:
@@ -47,19 +46,21 @@ class WebMOREST:
         self._init_javascript = True
         if has_ipython:
             self._inject_javascript()
-
+            self._callback_listener = None
         
     def __del__(self):
         """Destructor for WebMOREST
         
         This destructor automatically deletes the session token using the REST interface
         """
-        
         #End the REST sessions
         r = requests.delete(self._base_url + '/sessions', params=self._auth)
         #do not raise an exception for a failed request in this case due to issues
         #with object management in Jupyter (i.e. on code re-run, a new token is made
         #prior to deletion!)
+
+        if self._callback_listener is not None:
+            self._callback_listener.close()
     
     #
     # Users resource
@@ -342,8 +343,18 @@ class WebMOREST:
         Returns:
             None
         """
-        
+
+        allargs=locals()
+        del allargs['self']
+        asyncio.create_task(self._do_display_job_property(**allargs))
+
+    async def _do_display_job_property(self, job_number, property_name, property_index, peak_width, tms_shift, proton_coupling, nmr_field, width, height, background_color, rotate, filename):
+        from math import sqrt
+
         self._check_ipython()
+
+        if self._callback_listener is None:
+            await self._create_callback_listener()
 
         #clean up the filename; None cannot be used since this must interact with Javascript
         if filename is None:
@@ -374,7 +385,7 @@ class WebMOREST:
 
         elif property_name == "dipole_moment":
             dipole_moment = results['properties']['dipole_moment']
-            total_dipole = math.sqrt(dipole_moment[0]**2 + dipole_moment[1]**2 + dipole_moment[2]**2)
+            total_dipole = sqrt(dipole_moment[0]**2 + dipole_moment[1]**2 + dipole_moment[2]**2)
             property_string = "%f:%f:%f:%f" % (*dipole_moment,total_dipole)
             javascript_string += self._set_moledit_dipole_moment(property_string)
             
@@ -460,9 +471,13 @@ class WebMOREST:
                 javascript_string += self._rotate_moledit_view(rotate[0],rotate[1],rotate[2])
                 javascript_string += self._display_moledit_screenshot(filename)
 
+        #display the Javascript for execution
         display(Javascript("_call_when_ready(function(){%s})" % javascript_string))
+        clear_output()
+        #wait for the Javascript callback and process / display the result
+        await self._process_callback_response()
 
-        
+
     #
     # Status resource
     #
@@ -507,6 +522,7 @@ class WebMOREST:
             job_numbers(list): A list of job numbers which will be waited upon
             poll_frequency(int, optional): The frequency at which to check the job status (default is 5s)
         """
+        from time import sleep
         
         status = {}
         done = False
@@ -522,7 +538,7 @@ class WebMOREST:
                     if status[job_number] != 'complete' and status[job_number] != 'failed':
                         done = False
             if not done:
-                time.sleep(poll_frequency)
+                sleep(poll_frequency)
             
     #
     # Private helper methods
@@ -553,6 +569,7 @@ class WebMOREST:
                     moledit_div = document.createElement('div');\
                     moledit_div.innerHTML = \"<DIV ID='moledit-panel' CLASS='gwt-app' STYLE='width:300px; height:300px; visibility: hidden; position: absolute' orbitalSrc='%s/get_orbital.cgi' viewOnly='true' isJupyter='true'></DIV><DIV ID='datagrapher-panel' CLASS='gwt-app' STYLE='width: 300px; height: 300px; visibility: hidden; position: absolute'></DIV>\";\
                     document.body.prepend(moledit_div);\
+                    var exception_count = 0;\
                     function _call_when_ready(func) {\
                         const ready = document.getElementById('moledit-panel').children.length > 0 && document.getElementById('datagrapher-panel').children.length > 0 && _render_lock();\
                         if (!ready) {\
@@ -561,11 +578,13 @@ class WebMOREST:
                         }\
                         try {\
                             func();\
+                            exception_count=0;\
                         }\
                         catch(e) {\
                             console.log(e);\
                             _clear_lock();\
-                            setTimeout(function() {_call_when_ready(func)}, 1000);\
+                            if (exception_count++ < 3)\
+                                setTimeout(function() {_call_when_ready(func)}, 1000);\
                         }\
                     }\
                     function _render_lock() {\
@@ -584,7 +603,7 @@ class WebMOREST:
                 self._init_javascript = False
             except:
                 has_ipython = False
-            	        	
+
     def _check_ipython(self):
         if not has_ipython:
             raise NotImplementedError("IPython and WebMO 24+ are required for this feature")
@@ -602,7 +621,7 @@ class WebMOREST:
         return "_set_moledit_vibrational_mode('%s', %d, %f, %f);" % (value, mode, freq, scale)
     
     def _set_moledit_wavefunction(self, job_number, wavefunction_type, mo_index, filename):
-        return "_set_moledit_wavefunction(%d,'%s', %d, element, '%s', %ld);" % (job_number, wavefunction_type, mo_index, filename, time.time()*1000)
+        return "_set_moledit_wavefunction(%d,'%s', %d, %d, '%s');" % (job_number, wavefunction_type, mo_index, self._callback_port, filename)
         
     def _set_datagrapher_ir_spectrum(self, value, peak_width):
         return "_set_datagrapher_ir_spectrum('%s', %f);" % (value, peak_width)
@@ -632,7 +651,59 @@ class WebMOREST:
          return "_rotate_moledit_view(%f,%f,%f);" % (rx, ry, rz)
             
     def _display_moledit_screenshot(self, filename):
-        return "_display_moledit_screenshot(element, '%s', %ld);" % (filename, time.time()*1000)
+        return "_display_moledit_screenshot(%d, '%s');" % (self._callback_port, filename)
 
     def _display_datagrapher_screenshot(self, filename):
-        return "_display_datagrapher_screenshot(element, '%s', %ld);" % (filename, time.time()*1000)
+        return "_display_datagrapher_screenshot(%d, '%s');" % (self._callback_port, filename)
+
+    #
+    # Methods for handling WebSocket data connections and callbacks
+    #
+
+    async def _create_callback_listener(self):
+        from weakref import ref
+        from random import randint
+        from websockets.server import serve
+
+        #create a weak reference to self, otherwise the cyclic reference
+        #between the server and WebMOREST will prevent destruction due to
+        #custom __dell__ method
+        self_weakref = ref(self)
+        async def _websocket_callback(websocket):
+            async for message in websocket:
+                self_weakref()._websocket_response_queue.append(message)
+
+        #generate a random port between 50-60k, in the unreserved range
+        self._callback_port = 50000 + randint(1,10000)
+        self._callback_listener = await serve(_websocket_callback, port=self._callback_port)
+
+        self._websocket_response_queue = []
+
+    async def _process_callback_response(self):
+        from base64 import b64decode
+        TIMEOUT = 10
+
+        json_msg = None
+        for i in range(TIMEOUT):
+            await asyncio.sleep(1)
+
+            if len(self._websocket_response_queue) > 0:
+                json_msg = self._websocket_response_queue.pop(0)
+                break
+
+        #Handle timeout waiting for response
+        if json_msg is None:
+            print("Timeout waiting for response from Javascript")
+            return
+
+        result = json.loads(json_msg)
+
+        #first display the image
+        display(Image(url=result['imageURI']))
+
+        #if requested, also save to disk
+        if result['filename'] != "":
+            base64_image_data = result['imageURI'].split(",",2)[1]
+            decoded_image_data = b64decode(base64_image_data);
+            with open(result['filename'], 'wb') as fp:
+                fp.write(decoded_image_data)
