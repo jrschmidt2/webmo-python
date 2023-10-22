@@ -2,7 +2,7 @@ from distutils.core import setup
 setup(
   name = 'webmo',
   packages = ['webmo'],
-  version = '1.0.2',
+  version = '1.1.0',
   license='MIT',
   description = 'A Python-based interface to WebMO',
   author = 'J.R. Schmidt',
