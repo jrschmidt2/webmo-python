@@ -43,9 +43,8 @@ class WebMOREST:
         self._base_url = base_url
         self._auth=r.json() #save an authorization token need to authenticate future REST requests
         
-        self._init_javascript = True
         if has_ipython:
-            self._inject_javascript()
+            self._init_javascript = True
             self._callback_listener = None
         
     def __del__(self):
@@ -343,6 +342,10 @@ class WebMOREST:
         Returns:
             None
         """
+
+        if self._init_javascript:
+            print("Loading required Javascript...")
+            self._inject_javascript()
 
         allargs=locals()
         del allargs['self']
