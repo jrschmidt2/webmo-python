@@ -315,12 +315,13 @@ class WebMOREST:
         r.raise_for_status()
         return r.json()["jobNumber"]
         
-    def display_job_property(self, job_number, property_name, property_index=1, peak_width=0.0, tms_shift=0.0, proton_coupling=0.0, nmr_field=400.0, width=400, height=400, background_color=(255,255,255), rotate=(0.,0.,0.), filename=None):
+    async def display_job_property(self, job_number, property_name, property_index=1, peak_width=0.0, tms_shift=0.0, proton_coupling=0.0, nmr_field=400.0, width=400, height=400, background_color=(255,255,255), rotate=(0.,0.,0.)):
         """Uses Javascript and IPython to display and image of the specified molecule and property,
         calculated from a previous WebMO job.
         
         This call outputs (via IPython) a PNG-formatted image of the molecule and property into the
-        Jupyter notebook cell. Requires IPython and WebMO 24 or higher.
+        Jupyter notebook cell. Requires IPython and WebMO 24 or higher. This is an asynchronous
+        method that must be 'await'ed, e.g. image = await rest.display_job_property(...)
         
         Arguments:
             job_number(int): The job about whom to return information
@@ -336,35 +337,21 @@ class WebMOREST:
             height(int, optional): The approximate height (in pixels) of the image to display (defaults to 300px)
             background_color(int,int,int,optional): A tuple specifying the (r,g,b) color of the background, where each color intensity is [0,255]
             rotate(int,int,int,optional): A tuple specifying the desired rotation (in degrees) of the molecule about the x,y,z axes about the "default" orientation
-            filename(str, optional): Request that the displayed image is downloaded as a PNG file of the specified filename
-
             
         Returns:
-            None
+            An EmbeddedImage object, which can be displayed and further manipulated.
         """
+        from math import sqrt
+
+        self._check_ipython()
 
         if self._init_javascript:
             print("Loading required Javascript...")
             self._inject_javascript()
 
-        allargs=locals()
-        del allargs['self']
-        asyncio.create_task(self._do_display_job_property(**allargs))
-
-    async def _do_display_job_property(self, job_number, property_name, property_index, peak_width, tms_shift, proton_coupling, nmr_field, width, height, background_color, rotate, filename):
-        from math import sqrt
-
-        self._check_ipython()
-
         if self._callback_listener is None:
             await self._create_callback_listener()
 
-        #clean up the filename; None cannot be used since this must interact with Javascript
-        if filename is None:
-            filename = ""
-        elif not filename.endswith(".png"):
-            filename += ".png"
-                
         r = requests.get(self._base_url + "/jobs/%d/geometry" % job_number, params=self._auth)
         r.raise_for_status()
         geometryJSON = json.dumps(r.json())
@@ -411,7 +398,7 @@ class WebMOREST:
             if property_name in SURFACE_PROPERTIES:
                 property_index = 0 #this is required
             javascript_string += self._rotate_moledit_view(rotate[0],rotate[1],rotate[2])
-            javascript_string += self._set_moledit_wavefunction(job_number, property_name, property_index, filename) #handles screenshot in callback
+            javascript_string += self._set_moledit_wavefunction(job_number, property_name, property_index) #handles screenshot in callback
             
         elif property_name in ["ir_spectrum", "raman_spectrum", "vcd_spectrum"]:
             frequencies = results['properties']['vibrations']['frequencies']
@@ -469,16 +456,16 @@ class WebMOREST:
         
         if not property_name in WAVEFUNCTION_PROPERTIES: #these are already done in the setWavefunction callback
             if property_name.endswith("spectrum"):
-                javascript_string += self._display_datagrapher_screenshot(filename)
+                javascript_string += self._display_datagrapher_screenshot()
             else:
                 javascript_string += self._rotate_moledit_view(rotate[0],rotate[1],rotate[2])
-                javascript_string += self._display_moledit_screenshot(filename)
+                javascript_string += self._display_moledit_screenshot()
 
         #display the Javascript for execution
         display(Javascript("_call_when_ready(function(){%s})" % javascript_string))
         clear_output()
         #wait for the Javascript callback and process / display the result
-        await self._process_callback_response()
+        return await self._process_callback_response()
 
 
     #
@@ -623,8 +610,8 @@ class WebMOREST:
     def _set_moledit_vibrational_mode(self, value, mode, freq, scale):
         return "_set_moledit_vibrational_mode('%s', %d, %f, %f);" % (value, mode, freq, scale)
     
-    def _set_moledit_wavefunction(self, job_number, wavefunction_type, mo_index, filename):
-        return "_set_moledit_wavefunction(%d,'%s', %d, %d, '%s');" % (job_number, wavefunction_type, mo_index, self._callback_port, filename)
+    def _set_moledit_wavefunction(self, job_number, wavefunction_type, mo_index):
+        return "_set_moledit_wavefunction(%d,'%s', %d, %d);" % (job_number, wavefunction_type, mo_index, self._callback_port)
         
     def _set_datagrapher_ir_spectrum(self, value, peak_width):
         return "_set_datagrapher_ir_spectrum('%s', %f);" % (value, peak_width)
@@ -653,16 +640,15 @@ class WebMOREST:
     def _rotate_moledit_view(self,rx,ry,rz):
          return "_rotate_moledit_view(%f,%f,%f);" % (rx, ry, rz)
             
-    def _display_moledit_screenshot(self, filename):
-        return "_display_moledit_screenshot(%d, '%s');" % (self._callback_port, filename)
+    def _display_moledit_screenshot(self):
+        return "_display_moledit_screenshot(%d);" % self._callback_port
 
-    def _display_datagrapher_screenshot(self, filename):
-        return "_display_datagrapher_screenshot(%d, '%s');" % (self._callback_port, filename)
+    def _display_datagrapher_screenshot(self):
+        return "_display_datagrapher_screenshot(%d);" % self._callback_port
 
     #
     # Methods for handling WebSocket data connections and callbacks
     #
-
     async def _create_callback_listener(self):
         from weakref import ref
         from random import randint
@@ -701,12 +687,51 @@ class WebMOREST:
 
         result = json.loads(json_msg)
 
-        #first display the image
-        display(Image(url=result['imageURI']))
+        #create and return the image
+        base64_image_data = result['imageURI'].split(",",2)[1]
+        decoded_image_data = b64decode(base64_image_data);
 
-        #if requested, also save to disk
-        if result['filename'] != "":
-            base64_image_data = result['imageURI'].split(",",2)[1]
-            decoded_image_data = b64decode(base64_image_data);
-            with open(result['filename'], 'wb') as fp:
-                fp.write(decoded_image_data)
+        return EmbeddedImage(data=decoded_image_data)
+
+
+class EmbeddedImage(Image):
+    """The EmbeddedImage class is a IPython-displayable image object with additional functionality.
+
+    The EmbeddedImage class is a Jupyter-renderable image object, derived from IPython.display.image.
+    However, the EmbeddedImage also adds additional utility conversion methods.
+    """
+    def __init__(self, data):
+        super().__init__(data)
+
+    def save(self, filename):
+        """Saves the EmbeddedImage to disk as a PNG-formatted image.
+
+        This call saves the EmbeddedImage object to disk as PNG-formatted image.
+
+        Arguments:
+            filename(str): The path to the target PNG file. A "png" extension is added, if not provided.
+
+        Returns:
+            None
+        """
+        if not filename.endswith(".png"):
+            filename += ".png"
+        with open(filename, 'wb') as fp:
+            fp.write(self.data)
+
+    def to_pil_image(self):
+        """Returns an equivalent Pillow (PIL) Image object.
+
+        This call converts and returns and equivalent Pillow (PIL) Image representation of the
+        current EmbeddedImage object, for further manipulation.
+
+        Arguments:
+            None
+
+        Returns:
+            A Pillow PIL.Image.Image object.
+        """
+        from PIL import Image
+        from io import BytesIO
+
+        return Image.open(BytesIO(self.data))
