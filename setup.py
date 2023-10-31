@@ -9,7 +9,7 @@ setup(
   author = 'J.R. Schmidt',
   author_email = 'schmidt@webmo.net',
   url = 'https://github.com/jrschmidt2/webmo-python',
-  download_url = 'https://github.com/jrschmidt2/webmo-python/archive/refs/tags/1.1.0.tar.gz',
+  download_url = 'https://github.com/jrschmidt2/webmo-python/archive/refs/tags/%s.tar.gz' % __version__,
   keywords = ['WEBMO', 'REST', 'API'],
   install_requires=[
           'requests',
