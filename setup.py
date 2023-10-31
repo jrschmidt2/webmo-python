@@ -1,8 +1,9 @@
 from distutils.core import setup
+from webmo import __version__
 setup(
   name = 'webmo',
   packages = ['webmo'],
-  version = '1.1.0',
+  version = __version__,
   license='MIT',
   description = 'A Python-based interface to WebMO',
   author = 'J.R. Schmidt',
