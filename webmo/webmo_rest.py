@@ -315,7 +315,7 @@ class WebMOREST:
         r.raise_for_status()
         return r.json()["jobNumber"]
         
-    async def display_job_property(self, job_number, property_name, property_index=1, peak_width=0.0, tms_shift=0.0, proton_coupling=0.0, nmr_field=400.0, width=400, height=400, background_color=(255,255,255), rotate=(0.,0.,0.)):
+    async def display_job_property(self, job_number, property_name, property_index=1, peak_width=0.0, tms_shift=0.0, proton_coupling=0.0, nmr_field=400.0, x_range=None, y_range=None, width=400, height=400, background_color=(255,255,255), transparent_background=False, rotate=(0.,0.,0.)):
         """Uses Javascript and IPython to display and image of the specified molecule and property,
         calculated from a previous WebMO job.
         
@@ -328,6 +328,8 @@ class WebMOREST:
             property_name(str): The name of the property to display. Must be one of 'geometry', 'dipole_moment', 'partial_charges', 'vibrational_mode', 'mo' (molecular orbital), 'esp' (electrostatic potential), 'nucleophilic', 'electrophilic', 'radical', 'nbo' (natural bonding orbital), 'nho' (natural hybrid orbital), 'nao' (natural atomic orbital), or various spectra ('ir_spectrum', 'raman_spectrum', 'vcd_spectrum', 'uvvis_spectrum', 'hnmr_spectrum', 'cnmr_spectrum')
             property_index(int, optional): The 1-based index of the property to display, e.g. which vibrational or orbital
 
+            x_range(float,float,optional): A tuple specifying the min/max x-range for spectra; can be reversed to invert axis
+            y_range(float,float,optional): A tuple specifying the min/max y-range for spectra; can be reversed to invert axis
             peak_width(float, optional): The peak width to use for spectra; default is spectrum-type specific
             tms_shift(float, optional): The chemical shift of TMS (in ppm, at same level of theory), which can be used for H1 NMR spectra
             proton_coupling(float, optional): The proton-proton coupling (in Hz), which can be used for H1 NMR spectra
@@ -336,6 +338,7 @@ class WebMOREST:
             width(int, optional): The approximate width (in pixels) of the image to display (defaults to 400px)
             height(int, optional): The approximate height (in pixels) of the image to display (defaults to 300px)
             background_color(int,int,int,optional): A tuple specifying the (r,g,b) color of the background, where each color intensity is [0,255]
+            transparent_background(boolean,optional): Whether the background is transparent or opaque
             rotate(int,int,int,optional): A tuple specifying the desired rotation (in degrees) of the molecule about the x,y,z axes about the "default" orientation
             
         Returns:
@@ -398,7 +401,7 @@ class WebMOREST:
             if property_name in SURFACE_PROPERTIES:
                 property_index = 0 #this is required
             javascript_string += self._rotate_moledit_view(rotate[0],rotate[1],rotate[2])
-            javascript_string += self._set_moledit_wavefunction(job_number, property_name, property_index) #handles screenshot in callback
+            javascript_string += self._set_moledit_wavefunction(job_number, property_name, property_index, transparent_background) #handles screenshot in callback
             
         elif property_name in ["ir_spectrum", "raman_spectrum", "vcd_spectrum"]:
             frequencies = results['properties']['vibrations']['frequencies']
@@ -456,6 +459,10 @@ class WebMOREST:
         
         if not property_name in WAVEFUNCTION_PROPERTIES: #these are already done in the setWavefunction callback
             if property_name.endswith("spectrum"):
+                if x_range is not None:
+                    javascript_string += self._set_x_range(x_range[0], x_range[1])
+                if y_range is not None:
+                    javascript_string += self._set_y_range(y_range[0], y_range[1])
                 javascript_string += self._display_datagrapher_screenshot()
             else:
                 javascript_string += self._rotate_moledit_view(rotate[0],rotate[1],rotate[2])
@@ -610,8 +617,8 @@ class WebMOREST:
     def _set_moledit_vibrational_mode(self, value, mode, freq, scale):
         return "_set_moledit_vibrational_mode('%s', %d, %f, %f);" % (value, mode, freq, scale)
     
-    def _set_moledit_wavefunction(self, job_number, wavefunction_type, mo_index):
-        return "_set_moledit_wavefunction(%d,'%s', %d, %d);" % (job_number, wavefunction_type, mo_index, self._callback_port)
+    def _set_moledit_wavefunction(self, job_number, wavefunction_type, mo_index, transparent_background):
+        return "_set_moledit_wavefunction(%d,'%s', %d, %d, %s);" % (job_number, wavefunction_type, mo_index, self._callback_port, 'true' if transparent_background else 'false')
         
     def _set_datagrapher_ir_spectrum(self, value, peak_width):
         return "_set_datagrapher_ir_spectrum('%s', %f);" % (value, peak_width)
@@ -631,6 +638,12 @@ class WebMOREST:
     def _set_datagrapher_h1nmr_spectrum(self, value, peak_width, proton_coupling, nmr_field, relative_spectrum):
         return "_set_datagrapher_h1nmr_spectrum('%s', %f, %f, %f, %d);" % (value, peak_width, proton_coupling, nmr_field, relative_spectrum)
 
+    def _set_x_range(self, min, max):
+        return "_set_x_range(%f, %f);" % (min, max)
+
+    def _set_y_range(self, min, max):
+        return "_set_y_range(%f, %f);" % (min, max)
+
     def _set_moledit_size(self,width,height):
         return "_set_moledit_size(%d,%d);" % (width, height)
         
@@ -640,8 +653,8 @@ class WebMOREST:
     def _rotate_moledit_view(self,rx,ry,rz):
          return "_rotate_moledit_view(%f,%f,%f);" % (rx, ry, rz)
             
-    def _display_moledit_screenshot(self):
-        return "_display_moledit_screenshot(%d);" % self._callback_port
+    def _display_moledit_screenshot(self, transparent_background):
+        return "_display_moledit_screenshot(%d,%s);" % (self._callback_port, 'true' if transparent_background else 'false')
 
     def _display_datagrapher_screenshot(self):
         return "_display_datagrapher_screenshot(%d);" % self._callback_port
