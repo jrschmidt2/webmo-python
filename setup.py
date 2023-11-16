@@ -20,7 +20,7 @@ version = get_version("webmo/__init__.py")
 setup(
   name = 'webmo',
   packages = ['webmo'],
-  version = __version__,
+  version = version,
   license='MIT',
   description = 'A Python-based interface to WebMO',
   author = 'J.R. Schmidt',
