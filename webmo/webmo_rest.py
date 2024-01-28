@@ -466,7 +466,7 @@ class WebMOREST:
                 javascript_string += self._display_datagrapher_screenshot()
             else:
                 javascript_string += self._rotate_moledit_view(rotate[0],rotate[1],rotate[2])
-                javascript_string += self._display_moledit_screenshot()
+                javascript_string += self._display_moledit_screenshot(transparent_background)
 
         #display the Javascript for execution
         display(Javascript("_call_when_ready(function(){%s})" % javascript_string))
