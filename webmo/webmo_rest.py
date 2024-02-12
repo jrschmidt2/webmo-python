@@ -706,45 +706,45 @@ class WebMOREST:
 
         return EmbeddedImage(data=decoded_image_data)
 
+if has_ipython:
+    class EmbeddedImage(Image):
+        """The EmbeddedImage class is a IPython-displayable image object with additional functionality.
 
-class EmbeddedImage(Image):
-    """The EmbeddedImage class is a IPython-displayable image object with additional functionality.
-
-    The EmbeddedImage class is a Jupyter-renderable image object, derived from IPython.display.image.
-    However, the EmbeddedImage also adds additional utility conversion methods.
-    """
-    def __init__(self, data):
-        super().__init__(data)
-
-    def save(self, filename):
-        """Saves the EmbeddedImage to disk as a PNG-formatted image.
-
-        This call saves the EmbeddedImage object to disk as PNG-formatted image.
-
-        Arguments:
-            filename(str): The path to the target PNG file. A "png" extension is added, if not provided.
-
-        Returns:
-            None
+    The EmbeddedImage class is a Jupyter-renderable image object, derived from IPython.display.image.   
+        However, the EmbeddedImage also adds additional utility conversion methods.
         """
-        if not filename.endswith(".png"):
-            filename += ".png"
-        with open(filename, 'wb') as fp:
-            fp.write(self.data)
+        def __init__(self, data):
+            super().__init__(data)
 
-    def to_pil_image(self):
-        """Returns an equivalent Pillow (PIL) Image object.
+        def save(self, filename):
+            """Saves the EmbeddedImage to disk as a PNG-formatted image.
 
-        This call converts and returns and equivalent Pillow (PIL) Image representation of the
-        current EmbeddedImage object, for further manipulation.
+            This call saves the EmbeddedImage object to disk as PNG-formatted image.
 
-        Arguments:
-            None
+            Arguments:
+                filename(str): The path to the target PNG file. A "png" extension is added, if not provided.
 
-        Returns:
-            A Pillow PIL.Image.Image object.
-        """
-        from PIL import Image
-        from io import BytesIO
+            Returns:
+                None
+            """
+            if not filename.endswith(".png"):
+                filename += ".png"
+            with open(filename, 'wb') as fp:
+                fp.write(self.data)
 
-        return Image.open(BytesIO(self.data))
+        def to_pil_image(self):
+            """Returns an equivalent Pillow (PIL) Image object.
+
+            This call converts and returns and equivalent Pillow (PIL) Image representation of the
+            current EmbeddedImage object, for further manipulation.
+
+            Arguments:
+                None
+
+            Returns:
+                A Pillow PIL.Image.Image object.
+            """
+            from PIL import Image
+            from io import BytesIO
+
+            return Image.open(BytesIO(self.data))
