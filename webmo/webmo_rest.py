@@ -1115,3 +1115,35 @@ def gauss_line(center, intensity, width=10, start=0, stop=4000, step=1):
     x = np.arange(start=start, stop=stop, step=step)
     vfunc = np.vectorize(_arb_gaussian(center, intensity, width))
     return((x,vfunc(x)))
+
+def _arb_lorentz(center, intensity, width=10):
+    """
+    Return a lorentzian with an arbitrary height and intensity, with gamma being calculated from our
+    FWHM peak width.
+    """
+    from math import pi
+
+    gamma = (width / 2)
+    l = lambda x: (intensity/pi) * (gamma/((x-(center))**2 + gamma**2))
+
+    return l
+
+def lorentz_line(center, intensity, width=10, start=0, stop=4000, step=1):
+    """Calculate a lorentzian lineshape
+
+    This function returns a pair of numpy arrays that define a lorentzian line.
+
+    Arguments:
+    	center(float): the center point of the line
+    	intensity(float): the area under the line
+    	width(float,optional): the full width half max of the desired line
+    	start(float,optional): the starting point of the returned array
+    	stop(float,optional): the ending point of the returned array
+    	step(float,optional): the step between points of the returned array
+
+    Returns:
+    	(x,y): a tuple of the x and y numpy arrays of the specified line
+    """
+    x = np.arange(start=start, stop=stop, step=step)
+    vfunc = np.vectorize(_arb_lorentz(center, intensity, width))
+    return((x,vfunc(x)))
