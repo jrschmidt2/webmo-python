@@ -1083,3 +1083,35 @@ def voigt_line(center, intensity, width=10, q=0.5, start=0, stop=4000, step=1):
     x = np.arange(start=start, stop=stop, step=step)
     vfunc = np.vectorize(_arb_voigt(center, intensity, q, width))
     return((x,vfunc(x)))
+
+def _arb_gaussian(center, intensity, width=10):
+    """
+    Return a gaussian with an arbitrary height and intensity, with sigma being determined by calculating
+    it from our FWHM peak width.
+    """
+    from math import sqrt, pi, exp, log
+
+    sigma = (width / (2 * sqrt(2 * log(2))))
+    l = lambda x: intensity * (1/sigma*sqrt(2*pi)) * exp(-((x-center)**2/(2*sigma**2)))
+
+    return l
+
+def gauss_line(center, intensity, width=10, start=0, stop=4000, step=1):
+    """Calculate a gaussian lineshape
+
+    This function returns a pair of numpy arrays that define a gaussian line.
+
+    Arguments:
+    	center(float): the center point of the line
+    	intensity(float): the area under the line
+    	width(float,optional): the full width half max of the desired line
+    	start(float,optional): the starting point of the returned array
+    	stop(float,optional): the ending point of the returned array
+    	step(float,optional): the step between points of the returned array
+
+    Returns:
+    	(x,y): a tuple of the x and y numpy arrays of the specified line
+    """
+    x = np.arange(start=start, stop=stop, step=step)
+    vfunc = np.vectorize(_arb_gaussian(center, intensity, width))
+    return((x,vfunc(x)))
