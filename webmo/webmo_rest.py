@@ -316,7 +316,7 @@ class WebMOREST:
         return r.json()["jobNumber"]
         
     async def display_job_property(self, job_number, property_name, property_index=1, peak_width=0.0, tms_shift=0.0, proton_coupling=0.0, nmr_field=400.0, x_range=None, y_range=None, width=400, height=400, background_color=(255,255,255), transparent_background=False, rotate=(0.,0.,0.)):
-        """Uses Javascript and IPython to display and image of the specified molecule and property,
+        """Uses Javascript and IPython to display an image of the specified molecule and property,
         calculated from a previous WebMO job.
         
         This call outputs (via IPython) a PNG-formatted image of the molecule and property into the
