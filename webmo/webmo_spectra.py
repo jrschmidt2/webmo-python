@@ -397,3 +397,44 @@ def lorentz_line(center, intensity, width=10, start=0, stop=4000, step=1):
     x = np.arange(start=start, stop=stop, step=step)
     vfunc = np.vectorize(_arb_lorentz(center, intensity, width))
     return((x,vfunc(x)))
+
+def make_plot(points, intensities, lineshape="gauss", width=10, start=0, stop=4000, step=1):
+    """Construct an entire spectrum plot of data
+
+    This function returns a pair of numpy arrays that make a spectrum.
+
+    Arguments:
+    	points([float]): the peak positions
+    	intensities([float]): the corresponding peak intensities
+    	lineshape(string): the desired lineshape. The options are "gauss", "lorentz", and "voigt"
+    	width(float,optional): the full width half max of the desired line
+    	start(float,optional): the starting point of the returned array
+    	stop(float,optional): the ending point of the returned array
+    	step(float,optional): the step between points of the returned array
+
+    Returns:
+    	(x,y): a tuple of the x and y numpy arrays of the specified spectrum
+    """
+    l = []
+
+    linefuncs = {
+        "gauss": gauss_line,
+        "lorentz": lorentz_line,
+        "voigt": voigt_line
+    }
+    if (lineshape not in linefuncs.keys()):
+        linefunc = gauss_line
+    else:
+        linefunc = linefuncs[lineshape]
+
+    if (len(points) == 0 or len(intensities) == 0):
+        raise AssertionError("points or intensities are empty")
+
+    if (len(points) != len(intensities)):
+        raise AssertionError("peaks and intensities do not match size")
+
+    for (x,y) in zip(points, intensities):
+        axis, tmp = linefunc(x,y,width=width,start=start,stop=stop,step=step)
+        l.append(tmp)
+
+    return((axis,np.array(l).sum(axis=0)))
