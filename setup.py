@@ -31,5 +31,6 @@ setup(
   install_requires=[
           'requests',
           'websockets',
+          'numpy'
       ],
 )
