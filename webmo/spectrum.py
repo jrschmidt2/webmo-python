@@ -320,16 +320,19 @@ def voigt_line(center, intensity, width=10, q=0.5, start=0, stop=4000, step=1):
 
     Arguments:
     	center(float): the center point of the line
-    	intensity(float): the area under the line
+    	intensity(float): the area under the line (NOT the height!)
     	width(float,optional): the full width half max of the desired line
-    	q(float,optional): the ratio of gaussian to lorentzian
+    	q(float,optional): the ratio of gaussian to lorentzian, from 0 < q < 1.
     	start(float,optional): the starting point of the returned array
     	stop(float,optional): the ending point of the returned array
-    	step(float,optional): the step between points of the returned array
+    	step(float,optional): the space between points of the returned array
 
     Returns:
     	(x,y): a tuple of the x and y numpy arrays of the specified line
     """
+    if (not 0 < q < 1):
+        q = 0.5
+
     x = np.arange(start=start, stop=stop, step=step)
     vfunc = np.vectorize(_arb_voigt(center, intensity, q, width))
     return((x,vfunc(x)))
@@ -349,15 +352,16 @@ def _arb_gaussian(center, intensity, width=10):
 def gauss_line(center, intensity, width=10, start=0, stop=4000, step=1):
     """Calculate a gaussian lineshape
 
-    This function returns a pair of numpy arrays that define a gaussian line.
+    This function returns a pair of numpy arrays that define a gaussian with
+    given parameters.
 
     Arguments:
     	center(float): the center point of the line
-    	intensity(float): the area under the line
+    	intensity(float): the area under the line (NOT the height!)
     	width(float,optional): the full width half max of the desired line
     	start(float,optional): the starting point of the returned array
     	stop(float,optional): the ending point of the returned array
-    	step(float,optional): the step between points of the returned array
+    	step(float,optional): the space between points of the returned array
 
     Returns:
     	(x,y): a tuple of the x and y numpy arrays of the specified line
@@ -381,15 +385,16 @@ def _arb_lorentz(center, intensity, width=10):
 def lorentz_line(center, intensity, width=10, start=0, stop=4000, step=1):
     """Calculate a lorentzian lineshape
 
-    This function returns a pair of numpy arrays that define a lorentzian line.
+    This function returns a pair of numpy arrays that define a lorentzian line
+    given a set of parameters.
 
     Arguments:
     	center(float): the center point of the line
-    	intensity(float): the area under the line
+    	intensity(float): the area under the line (NOT the height!)
     	width(float,optional): the full width half max of the desired line
     	start(float,optional): the starting point of the returned array
     	stop(float,optional): the ending point of the returned array
-    	step(float,optional): the step between points of the returned array
+    	step(float,optional): the space between points of the returned array
 
     Returns:
     	(x,y): a tuple of the x and y numpy arrays of the specified line
@@ -398,22 +403,25 @@ def lorentz_line(center, intensity, width=10, start=0, stop=4000, step=1):
     vfunc = np.vectorize(_arb_lorentz(center, intensity, width))
     return((x,vfunc(x)))
 
-def make_plot(points, intensities, lineshape="gauss", width=10, start=0, stop=4000, step=1):
+def construct_spectrum(points, intensities, lineshape="gauss", width=10, start=0, stop=4000, step=1):
     """Construct an entire spectrum plot of data
 
-    This function returns a pair of numpy arrays that make a spectrum.
+    This function returns a pair of numpy arrays that make a spectrum; an x axis
+    and a y axis of the spectrum at each point on the x axis. This can then be
+    plotted or analyzed.
 
     Arguments:
-    	points([float]): the peak positions
-    	intensities([float]): the corresponding peak intensities
-    	lineshape(string): the desired lineshape. The options are "gauss", "lorentz", and "voigt"
-    	width(float,optional): the full width half max of the desired line
+    	points([float]): a list of peak positions
+    	intensities([float]): a list of corresponding peak intensities - the order must
+    			      match `points`
+    	lineshape(string,optional): the desired lineshape. The options are "gauss", "lorentz", and "voigt"
+    	width(float,optional): the full width half max of each peak
     	start(float,optional): the starting point of the returned array
     	stop(float,optional): the ending point of the returned array
-    	step(float,optional): the step between points of the returned array
+    	step(float,optional): the space between points of the returned array
 
     Returns:
-    	(x,y): a tuple of the x and y numpy arrays of the specified spectrum
+    	(x,y): a tuple of the x and y numpy arrays for the constructed spectrum
     """
     l = []
 
