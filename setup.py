@@ -31,5 +31,8 @@ setup(
   install_requires=[
           'requests',
           'websockets',
-      ],
+  ],
+  extras_require={
+      "spectrum": ["numpy"]
+  }
 )
