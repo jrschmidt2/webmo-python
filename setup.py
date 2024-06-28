@@ -33,6 +33,7 @@ setup(
           'websockets',
   ],
   extras_require={
-      "spectrum": ["numpy"]
+      "spectrum": ["numpy"],
+      "util": ["PubChemPy"]
   }
 )
