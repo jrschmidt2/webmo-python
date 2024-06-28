@@ -315,6 +315,50 @@ class WebMOREST:
         r.raise_for_status()
         return r.json()["jobNumber"]
         
+    #
+    # Template resource
+    #
+    def get_templates(self, engine):
+        """Fetches a list of job templates available to the current user
+
+        This call returns a JSON-formatted list of available templates and associated job variables.
+
+        Arguments:
+            engine(str): The name of the computational engine for which to fetch templates.
+
+        Returns:
+            A JSON-formatted list of available templates
+        """
+
+        r = requests.get(self._base_url + "/templates/%s" % engine, params=self._auth)
+        r.raise_for_status()
+        return r.json()["templates"]
+
+
+    def generate_input(self, engine, template_id, variables):
+        """Generates an input file from the specified template and dictionary of template job variables.
+
+        This call returns a text-formatted input file appropriate for submission.
+
+        Arguments:
+            engine(str): The name of the computational engine for which to fetch templates.
+            template_id(str): The template identifier associated with the desired template (from get_templates)
+            variables(dict): A dictionary of variables to be used to generate the input file from the template.
+
+        Returns:
+            A text-formatted input file
+        """
+
+        #append other relevant paramters
+        params = self._auth.copy()
+        params.update({'variables' : json.dumps(variables)})
+        r = requests.get(self._base_url + "/templates/%s/%s" % (engine, template_id), params=params)
+        r.raise_for_status()
+        return r.text
+
+    #
+    # Jupyter-related
+    #
     async def display_job_property(self, job_number, property_name, property_index=1, peak_width=0.0, tms_shift=0.0, proton_coupling=0.0, nmr_field=400.0, x_range=None, y_range=None, width=400, height=400, background_color=(255,255,255), transparent_background=False, rotate=(0.,0.,0.)):
         """Uses Javascript and IPython to display an image of the specified molecule and property,
         calculated from a previous WebMO job.
