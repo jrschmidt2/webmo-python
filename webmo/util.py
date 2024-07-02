@@ -9,7 +9,7 @@ def xyz_from_name(name):
         Returns:
             A string containing the molecule's XYZ-formatted geometry.
         """
-    results = pcp.get_compounds('aspirin', 'name', record_type='3d')
+    results = pcp.get_compounds(name, 'name', record_type='3d')
     if (len(results) == 0):
         raise ValueError("Specified molecule could not be found in PubChem")
 
