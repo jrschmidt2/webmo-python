@@ -305,7 +305,7 @@ class WebMOREST:
             job_name(str): The name of the new WebMO job
             input_file_contents(str): The contents of a valid input file to submit to a computational engine
             engine(str): The name of the computational engine
-            queue(str): The name of the queue in which to submit the job_name
+            queue(str, optional): The name of the queue in which to submit the job_name (required for external queues)
             nodes(int, optional): The number of nodes to use; defaults to 1
             ppn(int, optional): The number of cores per node to use; defaults to 1
             
