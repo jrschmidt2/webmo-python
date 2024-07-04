@@ -147,7 +147,7 @@ class WebMOREST:
             A list of folders
         """
         
-        #append other relevant paramters
+        #append other relevant parameters
         params = self._auth.copy()
         params.update({'user' : target_user})
         r = requests.get(self._base_url + "/folders", params=params)
@@ -355,6 +355,29 @@ class WebMOREST:
         r = requests.get(self._base_url + "/templates/%s/%s" % (engine, template_id), params=params)
         r.raise_for_status()
         return r.text
+
+    #
+    # Engines resource
+    #
+    def get_engines(self, target_user=""):
+        """Fetches a list of job templates available to the current user or specified target user
+
+        This call returns a JSON-formatted list of available engines and associated queues.
+
+        Arguments:
+            target_user(str, optional): The target username whose folders are retrieved. Otherwise, uses the authenticated user.
+
+        Returns:
+            A JSON-formatted list of available engines, associated queues/servers, and
+            node and processor limits.
+        """
+
+        #append other relevant parameters
+        params = self._auth.copy()
+        params.update({'user' : target_user})
+        r = requests.get(self._base_url + "/engines", params=params)
+        r.raise_for_status()
+        return r.json()["engines"]
 
     #
     # Jupyter-related
