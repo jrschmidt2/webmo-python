@@ -295,22 +295,27 @@ class WebMOREST:
         r.raise_for_status()
         return r.json()["jobNumber"]
         
-    def submit_job(self, job_name, input_file_contents, engine, queue=None):
+    def submit_job(self, job_name, input_file_contents, engine, queue=None, nodes=1, ppn=1):
         """Submits and executes a new WebMO job
         
-        This call submits and executes a new job to a computational engine, generating a new WebMO job.
+        This call submits and executes a new job to a computational engine, generating a new WebMO job,
+        using nodes*ppn total cores.
         
         Arguments:
             job_name(str): The name of the new WebMO job
             input_file_contents(str): The contents of a valid input file to submit to a computational engine
             engine(str): The name of the computational engine
+            queue(str): The name of the queue in which to submit the job_name
+            nodes(int, optional): The number of nodes to use; defaults to 1
+            ppn(int, optional): The number of cores per node to use; defaults to 1
             
         Returns:
-            The the job number of the new job, upon success
+            The the job number of the new job, upon success.
         """
         
         params = self._auth.copy()
-        params.update({'jobName' : job_name, 'engine' : engine, 'inputFile': input_file_contents, 'queue': queue})
+        params.update({'jobName' : job_name, 'engine' : engine, 'inputFile': input_file_contents,
+            'queue': queue, 'nodes': nodes, 'ppn': ppn})
         r = requests.post(self._base_url + '/jobs', data=params)
         r.raise_for_status()
         return r.json()["jobNumber"]
