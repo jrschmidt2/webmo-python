@@ -295,7 +295,7 @@ class WebMOREST:
         r.raise_for_status()
         return r.json()["jobNumber"]
         
-    def submit_job(self, job_name, input_file_contents, engine, queue=None, nodes=1, ppn=1):
+    def submit_job(self, job_name, input_file_contents, engine, queue=None, nodes=1, ppn=1, **kwargs):
         """Submits and executes a new WebMO job
         
         This call submits and executes a new job to a computational engine, generating a new WebMO job,
@@ -308,6 +308,8 @@ class WebMOREST:
             queue(str, optional): The name of the queue in which to submit the job_name (required for external queues)
             nodes(int, optional): The number of nodes to use; defaults to 1
             ppn(int, optional): The number of cores per node to use; defaults to 1
+            **kwargs(optional): Additional optional fields such as nodeType [PBS],
+            resourceList (aka constraints) [SGE/SLURM], timeLimit [SLURM], gpus [SLURM]
             
         Returns:
             The the job number of the new job, upon success.
@@ -315,7 +317,7 @@ class WebMOREST:
         
         params = self._auth.copy()
         params.update({'jobName' : job_name, 'engine' : engine, 'inputFile': input_file_contents,
-            'queue': queue, 'nodes': nodes, 'ppn': ppn})
+            'queue': queue, 'nodes': nodes, 'ppn': ppn, **kwargs})
         r = requests.post(self._base_url + '/jobs', data=params)
         r.raise_for_status()
         return r.json()["jobNumber"]
