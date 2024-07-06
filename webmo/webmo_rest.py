@@ -342,13 +342,12 @@ class WebMOREST:
         return r.json()["templates"]
 
 
-    def generate_input(self, engine, template_id, variables):
+    def generate_input(self, template_id, variables):
         """Generates an input file from the specified template and dictionary of template job variables.
 
         This call returns a text-formatted input file appropriate for submission.
 
         Arguments:
-            engine(str): The name of the computational engine for which to fetch templates.
             template_id(str): The template identifier associated with the desired template (from get_templates)
             variables(dict): A dictionary of variables to be used to generate the input file from the template.
 
@@ -359,7 +358,7 @@ class WebMOREST:
         #append other relevant paramters
         params = self._auth.copy()
         params.update({'variables' : json.dumps(variables)})
-        r = requests.get(self._base_url + "/templates/%s/%s" % (engine, template_id), params=params)
+        r = requests.get(self._base_url + "/templates/%s" % template_id, params=params)
         r.raise_for_status()
         return r.text
 
