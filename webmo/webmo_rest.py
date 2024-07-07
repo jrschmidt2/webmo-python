@@ -328,13 +328,13 @@ class WebMOREST:
     def get_templates(self, engine):
         """Fetches a list of job templates available to the current user
 
-        This call returns a JSON-formatted list of available templates and associated job variables.
+        This call returns a dictionary of available templates and associated job variables.
 
         Arguments:
             engine(str): The name of the computational engine for which to fetch templates.
 
         Returns:
-            A JSON-formatted list of available templates
+            A dictionary of available templates
         """
 
         r = requests.get(self._base_url + "/templates/%s" % engine, params=self._auth)
@@ -342,23 +342,28 @@ class WebMOREST:
         return r.json()["templates"]
 
 
-    def generate_input(self, template_id, variables):
+    def generate_input(self, template, variables):
         """Generates an input file from the specified template and dictionary of template job variables.
 
         This call returns a text-formatted input file appropriate for submission.
 
         Arguments:
-            template_id(str): The template identifier associated with the desired template (from get_templates)
+            template(dict): The desired job tempate (from get_templates)
             variables(dict): A dictionary of variables to be used to generate the input file from the template.
 
         Returns:
             A text-formatted input file
         """
+        #update and amend 'variables' with default values for missing template parameters
+        amend_variables = variables.copy()
+        for var in template['variables']:
+            if not var in variables:
+                amend_variables[var] = template['variables'][var]['default']
 
         #append other relevant paramters
         params = self._auth.copy()
-        params.update({'variables' : json.dumps(variables)})
-        r = requests.get(self._base_url + "/templates/%s" % template_id, params=params)
+        params.update({'variables' : json.dumps(amend_variables)})
+        r = requests.get(self._base_url + "/templates/%s" % template['id'], params=params)
         r.raise_for_status()
         return r.text
 
