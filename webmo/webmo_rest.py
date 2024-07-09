@@ -245,19 +245,41 @@ class WebMOREST:
         r.raise_for_status()
         return r.text
         
-    def get_job_archive(self, job_number):
-        """Returns a WebMO archive from the specified job.
+    def get_job_archive(self, *job_numbers):
+        """Returns a WebMO archive from the specified job(s).
         
-        This call generates and returns a binary WebMO archive (tar/zip) file from the specified job.
+        This call generates and returns a binary WebMO archive (tar/zip) file from the specified job(s).
         
         Arguments:
-            job_number(int): The job about whom to generate the archive
+            *job_numbers(int): The job(s) for which to generate the archive
             
         Returns:
             The raw data (as a string) of the WebMO archive, appropriate for saving to disk
         """
+
+        #append other relevant parameters
+        params = self._auth.copy()
+        params.update({'jobNumber' : ",".join(str(job_number) for job_number in job_numbers)})
+        r = requests.get(self._base_url + "/jobs/archive" % (), params=params)
+        r.raise_for_status()
+        return r.text
         
-        r = requests.get(self._base_url + "/jobs/%d/archive" % job_number, params=self._auth)
+    def get_job_spreadsheet(self, *job_numbers):
+        """Returns a spreadsheet summary of the specified job(s).
+        
+        This call generates and returns a CSV-formatted spreadsheet summary of the specified job(s).
+        
+        Arguments:
+            *job_numbers(int): The job(s) for which to generate the spreadsheet
+            
+        Returns:
+            The raw data (as a string) of the spreadsheet, appropriate for saving to disk
+        """
+
+        #append other relevant parameters
+        params = self._auth.copy()
+        params.update({'jobNumber' : ",".join(str(job_number) for job_number in job_numbers)})
+        r = requests.get(self._base_url + "/jobs/spreadsheet" % (), params=params)
         r.raise_for_status()
         return r.text
         
@@ -342,7 +364,7 @@ class WebMOREST:
         return r.json()["templates"]
 
 
-    def generate_input(self, template, variables):
+    def generate_input(self, template, variables, auto_defaults=True):
         """Generates an input file from the specified template and dictionary of template job variables.
 
         This call returns a text-formatted input file appropriate for submission.
@@ -350,15 +372,17 @@ class WebMOREST:
         Arguments:
             template(dict): The desired job tempate (from get_templates)
             variables(dict): A dictionary of variables to be used to generate the input file from the template.
+            auto_defaults(bool): Automatically use WebMO default values for omitted template variables
 
         Returns:
             A text-formatted input file
         """
-        #update and amend 'variables' with default values for missing template parameters
         amend_variables = variables.copy()
-        for var in template['variables']:
-            if not var in variables:
-                amend_variables[var] = template['variables'][var]['default']
+        if auto_defaults:
+            #update and amend 'variables' with default values for missing template parameters
+            for var in template['variables']:
+                if not var in variables:
+                    amend_variables[var] = template['variables'][var]['default']
 
         #append other relevant paramters
         params = self._auth.copy()
