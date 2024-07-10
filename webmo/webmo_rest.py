@@ -195,21 +195,36 @@ class WebMOREST:
         r = requests.get(self._base_url + "/jobs/%d" % job_number, params=self._auth)
         r.raise_for_status()
         return r.json()
-        
-    def get_job_results(self, job_number):
-        """Returns detailed results of the calculation (e.g. energy, properties) from the specified job.
+
+    def _check_valid_job_list(self, job_numbers):
+        if len(job_numbers) == 0:
+            raise ValueError("One or more job number(s) must be specified")
+
+    def get_job_results(self, *job_numbers):
+        """Returns detailed results of the calculation (e.g. energy, properties) from the specified job(s).
         
         This call returns a JSON formatted string summarize all of the calculated and parsed properties
         from the specified job. This information is normally summarized on the View Job page.
         
         Arguments:
-            job_number(int): The job about whom to return information
+            *job_numbers(int): The job(s) for which to generate the results
             
         Returns:
             A JSON formatted string summarizing the calculated properties
         """
-        
-        r = requests.get(self._base_url + "/jobs/%d/results" % job_number, params=self._auth)
+
+        self._check_valid_job_list(job_numbers)
+
+        if (len(job_numbers) == 1):
+            #handle case of single job, return JSON dictionary for single job
+            r = requests.get(self._base_url + "/jobs/%d/results" % job_numbers[0], params=self._auth)
+        else:
+            #handle case of multiple jobs, return JSON array of dictionaries
+            #append other relevant parameters
+            params = self._auth.copy()
+            params.update({'jobNumber' : ",".join(str(job_number) for job_number in job_numbers)})
+            r = requests.get(self._base_url + "/jobs/results", params=params)
+
         r.raise_for_status()
         return r.json()
         
@@ -257,6 +272,8 @@ class WebMOREST:
             The raw data (as a string) of the WebMO archive, appropriate for saving to disk
         """
 
+        self._check_valid_job_list(job_numbers)
+
         #append other relevant parameters
         params = self._auth.copy()
         params.update({'jobNumber' : ",".join(str(job_number) for job_number in job_numbers)})
@@ -275,6 +292,8 @@ class WebMOREST:
         Returns:
             The raw data (as a string) of the spreadsheet, appropriate for saving to disk
         """
+
+        self._check_valid_job_list(job_numbers)
 
         #append other relevant parameters
         params = self._auth.copy()
