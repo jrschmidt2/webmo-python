@@ -34,6 +34,7 @@ setup(
   ],
   extras_require={
       "spectrum": ["numpy"],
-      "util": ["PubChemPy"]
+      "util": ["PubChemPy"],
+      "gui": ["questionary", "ipywidgets"]
   }
 )
