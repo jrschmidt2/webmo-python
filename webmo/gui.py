@@ -2,105 +2,193 @@
 from abc import ABC, abstractmethod
 
 class _WebMOGUIBase(ABC):
-	"""The _WebMOGUIBase class is an abstract base class for all Python-based GUIs for WebMO.
-    """
+        """The _WebMOGUIBase class is an abstract base class for all Python-based GUIs for WebMO.
+        """
 
-	def __init__(self, template, query_vars, additional_vars):
-		self._query_vars = query_vars
-		self._additional_vars = additional_vars
+        def __init__(self, template, query_vars, additional_vars):
+                self._query_vars = query_vars
+                self._additional_vars = additional_vars
 
-	@abstractmethod	
-	def display(self):
-		pass
+        @abstractmethod
+        def display(self):
+                pass
 
-	@abstractmethod	
-	def get_variables(self):
-		pass
+        @abstractmethod
+        def get_variables(self):
+                pass
 
 class JupyterGUI(_WebMOGUIBase):
-	"""The JupyterGUI class is a menu-driven Jupyter GUI interface for setting up WebMO jobs.
-	
-	The class utilizes IPython widgets to present a menu-driven interface, using a subset
-	of user-specified list of template variables.
-    """
-	import ipywidgets
-		
-	def __init__(self, template, query_vars, additional_vars=None):
-		"""Constructor for JupyterGUI
-        
+        """The JupyterGUI class is a menu-driven Jupyter GUI interface for setting up WebMO jobs.
+
+        The class utilizes IPython widgets to present a menu-driven interface, using a subset
+        of user-specified list of template variables.
+        """
+        import ipywidgets
+
+        def __init__(self, template, query_vars, additional_vars=None):
+                """Constructor for JupyterGUI
+
         This constructor generates a JupyterGUI object.
-        
+
         Args:
             template(dict): A specific template, selected from WebMOREST.get_templates()
             query_vars(list): A subset of variables to use when generating the GUI
             additional_vars(dict, optional): A dictionary of additional variables/values to utilize during input file generation
-            
+
         Returns:
             object: The newly constructed JupyterGUI object
-    	"""
+        """
 
-		_WebMOGUIBase.__init__(self, template, query_vars, additional_vars)
-		self._widgets = []
+                _WebMOGUIBase.__init__(self, template, query_vars, additional_vars)
+                self._widgets = []
 
-		for var in query_vars:
+                for var in query_vars:
+                        if template['variables'][var]['type'] == 'checkbox':
+                                #handle checkbox options
+                                self._widgets.append(
+                                        self.ipywidgets.widgets.Checkbox(
+                                                value=True if template['variables'][var]['default'] == 'on' else False,
+                                        description=var,
+                                                disabled=False));
+                        elif template['variables'][var]['type'] == 'dropdown':
+                                #handle select/dropdown options
+                                self._widgets.append(
+                                        self.ipywidgets.widgets.Dropdown(
+                                                options=template['variables'][var]['options'],
+                                                value=template['variables'][var]['default'],
+                                        description=var,
+                                                disabled=False));
+                        else:
+                                #handle text input
+                                self._widgets.append(
+                                        self.ipywidgets.widgets.Text(
+                                            description=var,
+                                            value=template['variables'][var]['default'],
+                                            disabled=False));
 
-			if	template['variables'][var]['type'] == 'checkbox':
-				#handle checkbox options
-				self._widgets.append(
-					self.ipywidgets.widgets.Checkbox(
-						value=True if template['variables'][var]['default'] == 'on' else False,
-    					description=var,
-						disabled=False));
-			elif template['variables'][var]['type'] == 'dropdown':
-				#handle select/dropdown options
-				self._widgets.append(
-					self.ipywidgets.widgets.Dropdown(
-						options=template['variables'][var]['options'],
-						value=template['variables'][var]['default'],
-    					description=var,
-						disabled=False));
-			else:
-				#handle text input
-				self._widgets.append(
-					self.ipywidgets.widgets.Text(
-					    description=var,
-					    value=template['variables'][var]['default'],
-					    disabled=False));    
+        def display(self):
+                """Presents the menu-driven JupyterGUI
 
-	def display(self):
-		"""Presents the menu-driven JupyterGUI
-        
         Displays the JupyterGUI using a system of IPython widgets.
-        
+
         Args:
             None
-            
+
         Returns:
             None
-    	"""
-		for widget in self._widgets:
-			display(widget)
+        """
+                for widget in self._widgets:
+                        display(widget)
 
-	def get_variables(self):
-		"""Returns a populated variables dictionary.
-        
+        def get_variables(self):
+                """Returns a populated variables dictionary.
+
         Returns a populated variables dictionary, generated using the user-selected
         menu options, along with an additional user-specified key/value pairs (additional_vars)
-        
+
         Args:
             None
-            
+
         Returns:
             A populated dictionary of of variables and values.
-    	"""
+        """
 
-		#add in additional user-specified variables
-		variables = {**self._additional_vars}
+                #add in additional user-specified variables
+                variables = {**self._additional_vars}
 
-		for (var, widget) in zip(self._query_vars, self._widgets):
-			if isinstance(widget, self.ipywidgets.Checkbox):
-				variables[var] = "on" if widget.value == True else ""
-			else:
-				variables[var] = widget.value
-			
-		return variables
+                for (var, widget) in zip(self._query_vars, self._widgets):
+                        if isinstance(widget, self.ipywidgets.Checkbox):
+                                variables[var] = "on" if widget.value == True else ""
+                        else:
+                                variables[var] = widget.value
+
+                return variables
+
+class TerminalUI(_WebMOGUIBase):
+        """The TerminalUI class is a text-based interface for setting up WebMO jobs.
+
+        The class utilizes the questionary library to present a neat interface using a subset
+        of user-specified list of template variables.
+        """
+        import questionary as q
+
+        def __init__(self, template, query_vars, additional_vars=None):
+                """Constructor for TerminalUI
+
+                This constructor generates a TerminalUI object.
+
+                Args:
+                        template(dict): A specific template, selected from WebMOREST.get_templates()
+                        query_vars(list): A subset of variables to use when generating the GUI
+                        additional_vars(dict, optional): A dictionary of additional variables/values to utilize during input file generation
+
+                Returns:
+                        object: The newly constructed TerminalUI object
+                """
+
+                _WebMOGUIBase.__init__(self, template, query_vars, additional_vars)
+                self._questions = []
+                for var in query_vars:
+                        # checkbox options
+                        if template['variables'][var]['type'] == 'checkbox':
+                                self._questions.append(
+                                        self.q.confirm(var)
+                                );
+                        # select/dropdown options
+                        elif template['variables'][var]['type'] == 'dropdown':
+                                self._questions.append(
+                                        self.q.select(
+                                                var,
+                                                choices=template['variables'][var]['options'],
+                                                use_shortcuts=True
+                                        )
+                                );
+                        else: # text input
+                                self._questions.append(
+                                        self.q.text(
+                                                var
+                                        )
+                                );
+
+
+        def display(self):
+                """Presents the text-drive TerminalUI
+
+                Displays the TerminalUI using a list of questionary questions.
+
+                Args:
+                        None
+
+                Returns:
+                        None
+                """
+                self._answers = []
+                for question in self._questions:
+                        self._answers.append(question.ask())
+
+        def get_variables(self):
+                """Returns a populated variables dictionary.
+
+                Returns a populated variables dictionary, generated using the user-selected
+                options, along with an additional user-specified key/value pairs (additional_vars)
+
+                Args:
+	                None
+
+                Returns:
+                	A populated dictionary of of variables and values.
+                """
+
+                # add in additional user-specified variables
+                if (self._additional_vars != None):
+                        variables = {**self._additional_vars}
+                else:
+                        variables = {}
+
+                for (var, value) in zip(self._query_vars, self._answers):
+                        if isinstance(value, bool):
+                                variables[var] = "on" if value else ""
+                        else:
+                                variables[var] = value
+
+                return variables
