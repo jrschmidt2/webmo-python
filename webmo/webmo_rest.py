@@ -52,8 +52,9 @@ class WebMOREST:
         
         This destructor automatically deletes the session token using the REST interface
         """
-        #End the REST sessions
-        r = requests.delete(self._base_url + '/sessions', params=self._auth)
+        #End the REST sessions; check in case requests has already been released
+        if requests.delete is not None:
+            r = requests.delete(self._base_url + '/sessions', params=self._auth)
         #do not raise an exception for a failed request in this case due to issues
         #with object management in Jupyter (i.e. on code re-run, a new token is made
         #prior to deletion!)
