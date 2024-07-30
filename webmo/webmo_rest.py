@@ -805,7 +805,7 @@ class WebMOREST:
 
     async def _process_callback_response(self):
         from base64 import b64decode
-        TIMEOUT = 10
+        TIMEOUT = 60
 
         json_msg = None
         for i in range(TIMEOUT):
