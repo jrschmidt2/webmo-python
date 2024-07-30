@@ -47,7 +47,7 @@ class JupyterGUI(_WebMOGUIBase):
     try:
         import ipywidgets
     except:
-        #fail silently
+        #fail silently, since this should never happen in Jupyter
         pass #print('ipywidgets not found; disabling support for JupyterGUI')
 
     def __init__(self, template, query_vars, additional_vars=None):
@@ -118,12 +118,6 @@ class ConsoleGUI(_WebMOGUIBase):
     The class utilizes the questionary library to present a neat interface using a subset
     of user-specified list of template variables.
     """
-    try:
-        import questionary as q
-        from questionary import Choice
-    except:
-        #fail silently
-        pass #print('questionary not found; disabling support for ConsoleGUI')
 
     def __init__(self, template, query_vars, additional_vars=None):
         """Constructor for ConsoleGUI
@@ -139,27 +133,29 @@ class ConsoleGUI(_WebMOGUIBase):
             object: The newly constructed ConsoleGUI object
         """
 
+        import questionary as q
+
         _WebMOGUIBase.__init__(self, template, query_vars, additional_vars)
         self._questions = []
         for var in query_vars:
             # checkbox options
             if template['variables'][var]['type'] == 'checkbox':
-                self._questions.append(self.q.confirm(var));
+                self._questions.append(q.confirm(var));
             # select/dropdown options
             elif template['variables'][var]['type'] == 'dropdown':
                 choices = []
                 for key, value in template['variables'][var]['options'].items():
-                    choices.append(self.Choice(title=key, value=value))
+                    choices.append(q.Choice(title=key, value=value))
 
                 self._questions.append(
-                    self.q.select(
+                    q.select(
                         var,
                         choices=choices,
                         use_shortcuts=True));
             # text input
             else:
                 self._questions.append(
-                    self.q.text(var));
+                    q.text(var));
 
 
     def display(self):
