@@ -415,7 +415,7 @@ class WebMOREST:
     # Engines resource
     #
     def get_engines(self, target_user=""):
-        """Fetches a list of job templates available to the current user or specified target user
+        """Fetches a list of computational engines available to the current user or specified target user
 
         This call returns a JSON-formatted list of available engines and associated queues.
 
