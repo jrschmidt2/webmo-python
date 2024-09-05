@@ -16,7 +16,7 @@ class WebMOREST:
     creation/destruction.
     """
     
-    def __init__(self, base_url, username, password=""):
+    def __init__(self, base_url, username, password="", expiration=24):
         """Constructor for WebMOREST
         
         This constructor generates a WebMOREST object and also generates and stores a newly
@@ -26,6 +26,7 @@ class WebMOREST:
             base_url(str): The base URL (ending in rest.cgi) of the WeBMO rest endpoint
             username(str): The WebMO username
             password(str, optional): The WebMO password; if omitted, this is supplied interactively
+            expiration(int, optional): The expiration time (in hours) of the REST session token
             
         Returns:
             object: The newly constructed WebMO object
@@ -36,7 +37,7 @@ class WebMOREST:
         if not password:
             password=getpass(prompt="Enter WebMO password for user %s:" % username)
         #obtain a REST token using the specified credentials
-        login={'username' : username, 'password' : password} #WebMO login information, used to retrieve a REST access token
+        login={'username' : username, 'password' : password, 'expiration' : expiration}
         r = requests.post(base_url + '/sessions', data=login)
         r.raise_for_status() #raise an exception if there is a problem with the request
         
@@ -315,7 +316,7 @@ class WebMOREST:
         r = requests.delete(self._base_url + "/jobs/%d" % job_number, params=self._auth)
         r.raise_for_status()
         
-    def import_job(self, job_name, filename, engine):
+    def import_job(self, job_name, output_filename, engine):
         """Imports an existing output file into WebMO
         
         This call imports an existing computational output file, parsing the output and creating a newly
@@ -323,7 +324,7 @@ class WebMOREST:
         
         Arguments:
             job_name(str): The name of the new WebMO job
-            filename(str): The filename (full path) of an existing output file to import
+            output_filename(str): The filename (full path) of an existing output file to import
             engine(str): The name of the computational engine
             
         Returns:
@@ -332,12 +333,12 @@ class WebMOREST:
         
         params = self._auth.copy()
         params.update({'jobName' : job_name, 'engine' : engine})
-        output_file = {'outputFile' : ('output.log', open(filename, 'rb'), 'text/plain')}
+        output_file = {'outputFile' : ('output.log', open(output_filename, 'rb'), 'text/plain')}
         r = requests.post(self._base_url + '/jobs', data=params, files=output_file)
         r.raise_for_status()
         return r.json()["jobNumber"]
         
-    def submit_job(self, job_name, input_file_contents, engine, queue=None, nodes=1, ppn=1, **kwargs):
+    def submit_job(self, job_name, input_contents, engine, queue=None, nodes=1, ppn=1, **kwargs):
         """Submits and executes a new WebMO job
         
         This call submits and executes a new job to a computational engine, generating a new WebMO job,
@@ -345,7 +346,7 @@ class WebMOREST:
         
         Arguments:
             job_name(str): The name of the new WebMO job
-            input_file_contents(str): The contents of a valid input file to submit to a computational engine
+            input_contents(str): The valid input for submission to the computational engine as its input file
             engine(str): The name of the computational engine
             queue(str, optional): The name of the queue in which to submit the job_name (required for external queues)
             nodes(int, optional): The number of nodes to use; defaults to 1
@@ -358,7 +359,7 @@ class WebMOREST:
         """
         
         params = self._auth.copy()
-        params.update({'jobName' : job_name, 'engine' : engine, 'inputFile': input_file_contents,
+        params.update({'jobName' : job_name, 'engine' : engine, 'inputFile': input_contents,
             'queue': queue, 'nodes': nodes, 'ppn': ppn, **kwargs})
         r = requests.post(self._base_url + '/jobs', data=params)
         r.raise_for_status()
