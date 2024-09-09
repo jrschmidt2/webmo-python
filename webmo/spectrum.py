@@ -330,8 +330,10 @@ def voigt_line(center, intensity, width=10, q=0.5, start=0, stop=4000, step=1):
     Returns:
     	(x,y): a tuple of the x and y numpy arrays of the specified line
     """
-    if (not 0 < q < 1):
-        q = 0.5
+    if (q <= 0):
+        return(gauss_line(center, intensity, width, start, stop, step))
+    elif (q >= 1):
+        return(lorentz_line(center,intensity,width,start,stop,step))
 
     x = np.arange(start=start, stop=stop, step=step)
     vfunc = np.vectorize(_arb_voigt(center, intensity, q, width))
@@ -403,7 +405,7 @@ def lorentz_line(center, intensity, width=10, start=0, stop=4000, step=1):
     vfunc = np.vectorize(_arb_lorentz(center, intensity, width))
     return((x,vfunc(x)))
 
-def construct_spectrum(points, intensities, lineshape="gauss", width=10, start=0, stop=4000, step=1):
+def construct_spectrum(points, intensities, lineshape="gauss", frac_loren=0.5, width=10, start=0, stop=4000, step=1):
     """Construct an entire spectrum plot of data
 
     This function returns a pair of numpy arrays that make a spectrum; an x axis
@@ -415,6 +417,7 @@ def construct_spectrum(points, intensities, lineshape="gauss", width=10, start=0
     	intensities([float]): a list of corresponding peak intensities - the order must
     			      match `points`
     	lineshape(string,optional): the desired lineshape. The options are "gauss", "lorentz", and "voigt"
+        frac_loren(float,optional): the fraction lorentzian of the voigt lineshape, if specified
     	width(float,optional): the full width half max of each peak
     	start(float,optional): the starting point of the returned array
     	stop(float,optional): the ending point of the returned array
@@ -428,7 +431,7 @@ def construct_spectrum(points, intensities, lineshape="gauss", width=10, start=0
     linefuncs = {
         "gauss": gauss_line,
         "lorentz": lorentz_line,
-        "voigt": voigt_line
+        "voigt": lambda x, y, **kwargs: voigt_line(x,y,q=frac_loren, **kwargs)
     }
     if (lineshape not in linefuncs.keys()):
         linefunc = gauss_line
