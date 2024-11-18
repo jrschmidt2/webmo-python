@@ -621,22 +621,10 @@ class WebMOREST:
     #
     # Helper functions
     #
-    def wait_for_job(self, job_number, poll_frequency=5):
-        """Waits for completion of the specified WebMO job
+    def wait_for_job(self, *job_numbers, poll_frequency=5):
+        """Waits for completion of the specified WebMO jobs(s)
         
-        This call blocks until the specified WebMO job has finished executing (successfully or not)
-        
-        Arguments:
-            job_number(int): The job number to wait for
-            poll_frequency(int, optional): The frequency at which to check the job status (default is 5s)
-        """
-        
-        self.wait_for_jobs([job_number], poll_frequency)
-    
-    def wait_for_jobs(self, job_numbers, poll_frequency=5):
-        """Waits for completion of the specified list of WebMO jobs
-        
-        This call blocks until the specified WebMO jobs have all finished executing (successfully or not)
+        This call blocks until the specified WebMO job(s) have all finished executing (successfully or not)
         
         Arguments:
             job_numbers(list): A list of job numbers which will be waited upon
