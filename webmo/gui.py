@@ -50,6 +50,8 @@ class JupyterGUI(_WebMOGUIBase):
         #fail silently, since this should never happen in Jupyter
         pass #print('ipywidgets not found; disabling support for JupyterGUI')
 
+    import time
+
     def __init__(self, template, query_vars, additional_vars=None):
         """Constructor for JupyterGUI
 
@@ -66,6 +68,7 @@ class JupyterGUI(_WebMOGUIBase):
 
         _WebMOGUIBase.__init__(self, template, query_vars, additional_vars)
         self._widgets = []
+        self._display_time = -1
 
         for var in query_vars:
             if template['variables'][var]['type'] == 'checkbox':
@@ -93,10 +96,19 @@ class JupyterGUI(_WebMOGUIBase):
 
     def display(self):
 
+        self._display_time = self.time.time()
+
         for widget in self._widgets:
             display(widget)
 
     def get_variables(self):
+
+        MIN_INPUT_TIME = 1.0
+        # sanity check to make sure user has had time to input something
+        # fail this call during re-execution of entire notebook at once
+        elapsed_time = self.time.time() - self._display_time
+        if self._display_time == -1 or elapsed_time < MIN_INPUT_TIME:
+            raise RuntimeError('Must provide JupyterGUI input before calling get_variables')
 
         # add in additional user-specified variables
         if (self._additional_vars != None):
