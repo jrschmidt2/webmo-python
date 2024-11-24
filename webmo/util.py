@@ -24,6 +24,39 @@ def xyz_from_name(name):
         
     return geom
 
+def get_energy(results, include_units=False):
+    """Returns the molecular energy from the job results. This should correspond to the ground state energy
+    at molecule at the requested level of theory.
+
+    Arguments:
+        dict(results): A dictionary of job results, obtained from get_job_results.
+        bool(include_units): Whether to include the units with the returned energy (e.g. 1.5 vs. "1.5 Hartree")
+
+    Returns:
+        The molecular energy.
+    """
+    properties = results['properties']
+
+    if not 'method_energy_name' in properties.keys():
+        raise RuntimeError('Cannot locate "method_energy_name" in results')
+    method_energy_name = properties['method_energy_name'].lower() + '_energy'
+
+    found = False
+    #also check related key names, since Gaussian prepends some things occasionally
+    for key in [method_energy_name, 'r' + method_energy_name, 'u' + method_energy_name, 'ro' + method_energy_name]:
+        if key in properties:
+            energy = properties[key]['value']
+            units = properties[key]['units']
+            found = True
+
+    if not found:
+        raise RuntimeError('Could not locate "' + method_energy_name + '" in results')
+
+    if include_units:
+        energy = f"{energy} {units}"
+
+    return energy
+
 def get_energies(results, include_units=False):
     """Returns a dictionary of available energies from the job results.
 
@@ -40,7 +73,8 @@ def get_energies(results, include_units=False):
     for key in properties.keys():
         index = key.find('_energy')
 
-        if index >= 0:
+        if key.endswith('_energy'):
+            index = key.find('_energy')
             energy_type = key[:index]
 
             if include_units:
