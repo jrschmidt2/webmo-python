@@ -39,7 +39,7 @@ def get_energy(results, include_units=False):
 
     if not 'method_energy_name' in properties.keys():
         raise RuntimeError('Cannot locate "method_energy_name" in results')
-    method_energy_name = properties['method_energy_name'].lower() + '_energy'
+    method_energy_name = properties['method_energy_name'].lower().replace(' ', '_') + '_energy'
 
     found = False
     #also check related key names, since Gaussian prepends some things occasionally
