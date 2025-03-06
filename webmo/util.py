@@ -30,6 +30,8 @@ def get_energy(results, include_units=False):
     """Returns the molecular energy from the job results. This should correspond to the ground state energy
     at molecule at the requested level of theory.
 
+    Requires WebMO 25 or higher.
+
     Arguments:
         dict(results): A dictionary of job results, obtained from get_job_results.
         bool(include_units): Whether to include the units with the returned energy (e.g. 1.5 vs. "1.5 Hartree")
@@ -157,10 +159,10 @@ def get_property(results, property_name):
 
 
 def get_bond_length(results, index1, index2):
-    """Returns the specified bond length between two atoms from the job results.
+    """Returns the specified bond length between two atoms from the job results OR an xyz-formatted string.
 
     Arguments:
-        dict(results): A dictionary of job results, obtained from get_job_results.
+        dict(results): A dictionary of job results obtained from get_job_results OR an xyz-formatted string.
         index1(int): The one-based index of the first atom of the bonded pair
         index2(int): The one-based index of the second atom of the bonded pair
 
@@ -168,7 +170,10 @@ def get_bond_length(results, index1, index2):
         The calculated bond length.
     """
 
-    geom = results['geometry']
+    if not isinstance(results, dict):
+        geom = _xyz_to_array(results)
+    else:
+        geom = results['geometry']
 
     #convert to 0 index
     index1 -= 1
@@ -180,10 +185,10 @@ def get_bond_length(results, index1, index2):
     return np.linalg.norm(atom1 - atom2)
 
 def get_bond_angle(results, index1, index2, index3):
-    """Returns the specified bond angle between three atoms from the job results.
+    """Returns the specified bond angle between three atoms from the job results OR an xyz-formatted string.
 
     Arguments:
-        dict(results): A dictionary of job results, obtained from get_job_results.
+        dict(results): A dictionary of job results obtained from get_job_results OR an xyz-formatted string.
         index1(int): The one-based index of the first atom
         index2(int): The one-based index of the second atom
         index3(int): The one-based index of the third atom
@@ -192,7 +197,10 @@ def get_bond_angle(results, index1, index2, index3):
         The calculated bond angle.
     """
 
-    geom = results['geometry']
+    if not isinstance(results, dict):
+        geom = _xyz_to_array(results)
+    else:
+        geom = results['geometry']
 
     #convert to 0 index
     index1 -= 1
@@ -212,10 +220,10 @@ def get_bond_angle(results, index1, index2, index3):
     return np.arccos(np.dot(vec1,vec2))*180./np.pi
 
 def get_dihedral_angle(results, index1, index2, index3, index4):
-    """Returns the specified dihedral angle between four atoms from the job results.
+    """Returns the specified dihedral angle between four atoms from the job results OR an xyz-formatted string.
 
     Arguments:
-        dict(results): A dictionary of job results, obtained from get_job_results.
+        dict(results): A dictionary of job results obtained from get_job_results OR an xyz-formatted string.
         index1(int): The one-based index of the first atom
         index2(int): The one-based index of the second atom
         index3(int): The one-based index of the third atom
@@ -225,7 +233,10 @@ def get_dihedral_angle(results, index1, index2, index3, index4):
         The calculated dihedral angle.
     """
 
-    geom = results['geometry']
+    if not isinstance(results, dict):
+        geom = _xyz_to_array(results)
+    else:
+        geom = results['geometry']
 
     #convert to 0 index
     index1 -= 1
@@ -242,16 +253,35 @@ def get_dihedral_angle(results, index1, index2, index3, index4):
     b2 = atom2 - atom3
     b3 = atom3 - atom4
 
+    b1 /= np.linalg.norm(b1)
+    b2 /= np.linalg.norm(b2)
+    b3 /= np.linalg.norm(b3)
+
     n1 = np.cross(b1, b2)
     n2 = np.cross(b2, b3)
-    n3 = np.cross(n1, n2)
+    m = np.cross(n1, b2)
 
-    n1 /= np.linalg.norm(n1)
-    n2 /= np.linalg.norm(n2)
-    n3 /= np.linalg.norm(n3)
+    x = np.dot(n1, n2)
+    y = np.dot(m, n2)
 
-    angle = np.arccos(np.dot(n1,n2))*180./np.pi
-    if np.dot(b2,n3) > 0:
-        angle = -angle
+    return np.arctan2(y, x)*180./np.pi
 
-    return angle
+def _xyz_to_array(xyz):
+    xyz = xyz.strip()
+
+    try:
+        #throw exception if NOT a number, indicating that our XYZ file has no header
+        tokens = xyz.split()
+        int(tokens[0])
+        #this XYZ formatted string is proper, containing a header that must be removed
+        xyz = xyz.split("\n",2)[2]
+    except ValueError:
+        pass
+
+    #process the actual geometry of the XYZ file, converting into an array
+    geom = xyz.split()
+    #remove the element names, leaving only an array of positions
+    del geom[0::4]
+
+    #convert to an array of floats and return
+    return np.array(geom,dtype=float)
