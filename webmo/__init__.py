@@ -1,2 +1,2 @@
 from .webmo_rest import WebMOREST
-__version__ = "1.3.3"
+__version__ = "1.4.1"
