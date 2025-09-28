@@ -347,7 +347,7 @@ def _arb_gaussian(center, intensity, width=10):
     from math import sqrt, pi, exp, log
 
     sigma = (width / (2 * sqrt(2 * log(2))))
-    l = lambda x: intensity * (1/sigma*sqrt(2*pi)) * exp(-((x-center)**2/(2*sigma**2)))
+    l = lambda x: intensity * (1/(sigma*sqrt(2*pi))) * exp(-((x-center)**2/(2*sigma**2)))
 
     return l
 
