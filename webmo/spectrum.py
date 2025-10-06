@@ -434,7 +434,7 @@ def construct_spectrum(points, intensities, lineshape="gauss", frac_loren=0.5, w
         "voigt": lambda x, y, **kwargs: voigt_line(x,y,q=frac_loren, **kwargs)
     }
     if (lineshape not in linefuncs.keys()):
-        linefunc = gauss_line
+        raise AssertionError("invalid lineshape specified")
     else:
         linefunc = linefuncs[lineshape]
 
