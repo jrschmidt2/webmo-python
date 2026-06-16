@@ -1,10 +1,11 @@
 import numpy as np
 
-def xyz_from_name(name):
+def xyz_from_name(name, include_atomic_number=False):
     """Obtains an XYZ-formatted geometry for the molecule name via PubChem lookup.
 
     Arguments:
         name(str): The name of the molecule.
+        include_atomic_number(bool): Whether to include the atomic number as well in the XYZ output (e.g. for GAMESS formatted Cartesian coordinates)
 
     Returns:
         A string containing the molecule's XYZ-formatted geometry.
@@ -19,10 +20,14 @@ def xyz_from_name(name):
     geom = ""
     for atom in record.atoms:
         element = atom.element
+        number = int(atom.number)
         x = float(atom.x)
         y = float(atom.y)
         z = float(atom.z)
-        geom += f"{element}\t{x:f}\t{y:f}\t{z:f}\n"
+        if include_atomic_number:
+            geom += f"{element}\t{number:d}\t{x:f}\t{y:f}\t{z:f}\n"
+        else:
+            geom += f"{element}\t{x:f}\t{y:f}\t{z:f}\n"
         
     return geom
 
@@ -33,8 +38,8 @@ def get_energy(results, include_units=False):
     Requires WebMO 25 or higher.
 
     Arguments:
-        dict(results): A dictionary of job results, obtained from get_job_results.
-        bool(include_units): Whether to include the units with the returned energy (e.g. 1.5 vs. "1.5 Hartree")
+        results(dict): A dictionary of job results, obtained from get_job_results.
+        include_units(bool): Whether to include the units with the returned energy (e.g. 1.5 vs. "1.5 Hartree")
 
     Returns:
         The molecular energy.
@@ -65,8 +70,8 @@ def get_energies(results, include_units=False):
     """Returns a dictionary of available energies from the job results.
 
     Arguments:
-        dict(results): A dictionary of job results, obtained from get_job_results.
-        bool(include_units): Whether to include the units with the returned energy (e.g. 1.5 vs. "1.5 Hartree")
+        results(dict): A dictionary of job results, obtained from get_job_results.
+        include_units(bool): Whether to include the units with the returned energy (e.g. 1.5 vs. "1.5 Hartree")
 
     Returns:
         A dictionary of available energies.
@@ -92,7 +97,7 @@ def get_geometry(results):
     """Returns the XYZ-formatted final geometry from the job results.
 
     Arguments:
-        dict(results): A dictionary of job results, obtained from get_job_results.
+        results(dict): A dictionary of job results, obtained from get_job_results.
 
     Returns:
         The XYZ-formatted final geometry as a string.
@@ -116,7 +121,7 @@ def get_stoichiometry(results):
     """Returns the stoichiometry from the job results.
 
     Arguments:
-        dict(results): A dictionary of job results, obtained from get_job_results.
+        results(dict): A dictionary of job results, obtained from get_job_results.
 
     Returns:
         The stoichiometry as a string.
@@ -129,7 +134,7 @@ def get_dipole_moment(results):
     """Returns the dipole moment from the job results.
 
     Arguments:
-        dict(results): A dictionary of job results, obtained from get_job_results.
+        results(dict): A dictionary of job results, obtained from get_job_results.
 
     Returns:
         The magnitude of the dipole moment.
@@ -147,8 +152,8 @@ def get_property(results, property_name):
     """Returns an arbitrary calculated property from the job results.
 
     Arguments:
-        dict(results): A dictionary of job results, obtained from get_job_results.
-        str(property_name): The name of the desired property
+        results(dict): A dictionary of job results, obtained from get_job_results.
+        property_name(str): The name of the desired property
 
     Returns:
         The value of the calculated property (scalar or dictionary).
@@ -265,6 +270,72 @@ def get_dihedral_angle(results, index1, index2, index3, index4):
     y = np.dot(m, n2)
 
     return np.arctan2(y, x)*180./np.pi
+
+def get_option_matching(template, variable, desired_value_aliases, ignore_missing_variables=False):
+    """Returns the best matching template variable option for the specified variable.
+
+    This can be useful when an engine uses non-standard names for options and you want to use a
+    more descriptive name (like that shown in the dropdown) rather than the corresponding value. It attempts
+    to match either the corresponding option value (if it exists) OR the description.
+
+    For example:
+        get_option_matching(template, 'basisSet', '6-31G(d)')
+    will return the value:
+        "N31 NGAUSS=6 NDFUNC=1"
+    since it matches the corresponding option description "Routine: 6-31G(d)" in the dropdown.
+
+    Arguments:
+        template(dict): The desired job template (from get_templates)
+        variable(str): The template variable
+        desired_value_aliases(list): A list of potentially matching values, or aliases thereof; a single string is also acceptable.
+        ignore_missing_variables(bool, opt): Whether to raise an exception if the template variable does not exist in the template
+
+    Returns:
+        The best matching corresponding variable value
+    """
+
+    def ends_with_whole_word(text, target_word):
+        # Check if it ends with the word
+        if not text.endswith(target_word):
+            return False
+        # Get the start index of the target word in the text
+        idx = len(text) - len(target_word)
+        # If it's at the very beginning of the string, it's a whole word
+        if idx == 0:
+            return True
+        # Check if the character just before our word is a space or a colon
+        return text[idx - 1].isspace() or text[idx - 1] == ':'
+
+    #immediately return if the desired value is blank (for some reason)
+    if isinstance(desired_value_aliases, str) and not desired_value_aliases.strip():
+        return ""
+
+    #normalize any scalar arguement ot a list
+    if not isinstance(desired_value_aliases, list):
+        desired_value_aliases = [desired_value_aliases]
+    #immediately return if this variable does not exist in this particular template
+    if not variable in template['variables']:
+        if ignore_missing_variables:
+            return ""
+        else:
+            raise ValueError(f"Could not locate variable {variable} in template")
+    #ensure that the template variable is a 'dropdown' type
+    if template['variables'][variable]['type'] != 'dropdown':
+        raise ValueError(f"Template variable {variable} is not of type dropdown")
+
+    options = template['variables'][variable]['options']
+    for desired_value in desired_value_aliases:
+        for key, value in options.items():
+            #check if the specified value exists as value in the options dictionary
+            if value.casefold() == desired_value.casefold():
+                return value
+            #otherwise check if it matches the end of any key in the dictionary
+            if ends_with_whole_word(key.casefold(), desired_value.casefold()):
+                return options[key]
+
+    #not found!
+    raise ValueError(f"Could not locate option {desired_value_aliases} for template variable {variable}")
+
 
 def _xyz_to_array(xyz):
     xyz = xyz.strip()
