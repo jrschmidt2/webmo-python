@@ -39,7 +39,7 @@ class WebMOREST:
         #obtain a REST token using the specified credentials
         login={'username' : username, 'password' : password, 'expiration' : expiration}
         r = requests.post(base_url + '/sessions', data=login)
-        r.raise_for_status() #raise an exception if there is a problem with the request
+        WebMOREST._check_status(r) #raise an exception if there is a problem with the request
         
         self._base_url = base_url
         self._auth=r.json() #save an authorization token need to authenticate future REST requests
@@ -78,7 +78,7 @@ class WebMOREST:
         """
         
         r = requests.get(self._base_url + "/users", params=self._auth)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.json()["users"]
         
     def get_user_info(self, username):
@@ -95,7 +95,7 @@ class WebMOREST:
         """
         
         r = requests.get(self._base_url + "/users/%s" % username, params=self._auth)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.json()
 
     #
@@ -112,7 +112,7 @@ class WebMOREST:
         """
         
         r = requests.get(self._base_url + "/groups", params=self._auth)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.json()["groups"]
         
     def get_group_info(self, groupname):
@@ -129,7 +129,7 @@ class WebMOREST:
         """
         
         r = requests.get(self._base_url + "/groups/%s" % groupname, params=self._auth)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.json()
         
         
@@ -153,7 +153,7 @@ class WebMOREST:
         params = self._auth.copy()
         params.update({'user' : target_user})
         r = requests.get(self._base_url + "/folders", params=params)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.json()["folders"]
     
     #
@@ -179,7 +179,7 @@ class WebMOREST:
         params = self._auth.copy()
         params.update({'engine' : engine, 'status' : status, 'folderID' : folder_id, 'jobName' : job_name, 'user' : target_user})
         r = requests.get(self._base_url + '/jobs', params=params)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.json()["jobs"]
         
     def get_job_info(self, job_number):
@@ -195,7 +195,7 @@ class WebMOREST:
         """
         
         r = requests.get(self._base_url + "/jobs/%d" % job_number, params=self._auth)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.json()
 
     def _check_valid_job_list(self, job_numbers):
@@ -227,7 +227,7 @@ class WebMOREST:
             params.update({'jobNumber' : ",".join(str(job_number) for job_number in job_numbers)})
             r = requests.get(self._base_url + "/jobs/results", params=params)
 
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.json()
         
     def get_job_geometry(self, job_number):
@@ -243,7 +243,7 @@ class WebMOREST:
         """
         
         r = requests.get(self._base_url + "/jobs/%d/geometry" % job_number, params=self._auth)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.json()["xyz"]
         
     def get_job_output(self, job_number):
@@ -259,7 +259,7 @@ class WebMOREST:
         """
         
         r = requests.get(self._base_url + "/jobs/%d/raw_output" % job_number, params=self._auth)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.text
         
     def get_job_archive(self, *job_numbers):
@@ -280,7 +280,7 @@ class WebMOREST:
         params = self._auth.copy()
         params.update({'jobNumber' : ",".join(str(job_number) for job_number in job_numbers)})
         r = requests.get(self._base_url + "/jobs/archive" % (), params=params)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.text
         
     def get_job_spreadsheet(self, *job_numbers):
@@ -301,7 +301,7 @@ class WebMOREST:
         params = self._auth.copy()
         params.update({'jobNumber' : ",".join(str(job_number) for job_number in job_numbers)})
         r = requests.get(self._base_url + "/jobs/spreadsheet" % (), params=params)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.text
         
     def delete_job(self, job_number):
@@ -314,7 +314,7 @@ class WebMOREST:
         """
         
         r = requests.delete(self._base_url + "/jobs/%d" % job_number, params=self._auth)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         
     def import_job(self, job_name, output_filename, engine):
         """Imports an existing output file into WebMO
@@ -335,7 +335,7 @@ class WebMOREST:
         params.update({'jobName' : job_name, 'engine' : engine})
         output_file = {'outputFile' : ('output.log', open(output_filename, 'rb'), 'text/plain')}
         r = requests.post(self._base_url + '/jobs', data=params, files=output_file)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.json()["jobNumber"]
         
     def submit_job(self, job_name, input_contents, engine, queue=None, nodes=1, ppn=1, **kwargs):
@@ -362,7 +362,7 @@ class WebMOREST:
         params.update({'jobName' : job_name, 'engine' : engine, 'inputFile': input_contents,
             'queue': queue, 'nodes': nodes, 'ppn': ppn, **kwargs})
         r = requests.post(self._base_url + '/jobs', data=params)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.json()["jobNumber"]
         
     #
@@ -381,7 +381,7 @@ class WebMOREST:
         """
 
         r = requests.get(self._base_url + "/templates/%s" % engine, params=self._auth)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.json()["templates"]
 
 
@@ -399,6 +399,12 @@ class WebMOREST:
             A text-formatted input file
         """
         amend_variables = variables.copy()
+        #handle booleans, converting False to '' if the template variable is a checkbox
+        for var in amend_variables:
+            if isinstance(amend_variables[var], bool) and (var in template['variables']) and (template['variables'][var]['type'] == 'checkbox'):
+                if amend_variables[var] == False:
+                    amend_variables[var] = ''
+        #add in defaults, if appropriate
         if auto_defaults:
             #update and amend 'variables' with default values for missing template parameters
             for var in template['variables']:
@@ -409,7 +415,7 @@ class WebMOREST:
         params = self._auth.copy()
         params.update({'variables' : json.dumps(amend_variables)})
         r = requests.get(self._base_url + "/templates/%s" % template['id'], params=params)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.text
 
     #
@@ -432,7 +438,7 @@ class WebMOREST:
         params = self._auth.copy()
         params.update({'user' : target_user})
         r = requests.get(self._base_url + "/engines", params=params)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.json()["engines"]
 
     #
@@ -479,7 +485,7 @@ class WebMOREST:
             await self._create_callback_listener()
 
         r = requests.get(self._base_url + "/jobs/%d/geometry" % job_number, params=self._auth)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         geometryJSON = json.dumps(r.json())
         geometryJSON = geometryJSON.replace("\\", "\\\\")
         
@@ -614,7 +620,7 @@ class WebMOREST:
         """
         
         r = requests.get(self._base_url + "/status", params=self._auth)
-        r.raise_for_status()
+        WebMOREST._check_status(r)
         return r.json()
         
         
@@ -651,6 +657,16 @@ class WebMOREST:
     #
     # Private helper methods
     #
+    @staticmethod
+    def _check_status(response):
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            # Grab the original message and append the body
+            new_message = f"{e.args[0]}\nResponse Body: {response.text[:500]}"
+            # Overwrite the exception arguments with your new message
+            e.args = (new_message,)
+            raise e
     
     def _inject_javascript(self):
         if self._init_javascript:
