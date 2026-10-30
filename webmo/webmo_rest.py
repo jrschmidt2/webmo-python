@@ -8,6 +8,19 @@ try:
 except ImportError:
     has_ipython = False
 
+#the job results each property needs, for error messages
+_PROPERTY_DATA = {
+    "dipole_moment": "dipole moment",
+    "partial_charges": "partial charge",
+    "vibrational_mode": "vibrational",
+    "ir_spectrum": "vibrational (IR)",
+    "raman_spectrum": "Raman",
+    "vcd_spectrum": "VCD",
+    "uvvis_spectrum": "excited-state (UV-Vis)",
+    "hnmr_spectrum": "NMR",
+    "cnmr_spectrum": "NMR",
+}
+
 class WebMOREST:
     """The WebMOREST class provides an object-oriented Python API for the WebMO REST interface.
     
@@ -76,7 +89,10 @@ class WebMOREST:
 
         if getattr(self, '_callback_listener', None) is not None:
             self._callback_listener.close()
-    
+
+        if getattr(self, '_renderer', None) is not None:
+            self._renderer.close()
+
     #
     # Users resource
     # 
@@ -487,8 +503,6 @@ class WebMOREST:
         Returns:
             An EmbeddedImage object, which can be displayed and further manipulated.
         """
-        from math import sqrt
-
         self._check_ipython()
 
         if self._init_javascript:
@@ -497,6 +511,87 @@ class WebMOREST:
 
         if self._callback_listener is None:
             await self._create_callback_listener()
+
+        javascript_string = self._property_javascript(job_number, property_name, property_index, peak_width, tms_shift,
+            proton_coupling, nmr_field, x_range, y_range, width, height, background_color, transparent_background,
+            rotate, self._callback_port)
+
+        #display the Javascript for execution
+        display(Javascript(javascript_string))
+        clear_output()
+        #wait for the Javascript callback and process / display the result
+        return await self._process_callback_response()
+
+    def render_job_property(self, job_number, property_name, filename=None, property_index=1, peak_width=0.0, tms_shift=0.0, proton_coupling=0.0, nmr_field=400.0, x_range=None, y_range=None, width=400, height=400, background_color=(255,255,255), transparent_background=False, rotate=(0.,0.,0.), timeout=60):
+        """Renders an image of the specified molecule and property in a headless browser, outside Jupyter.
+
+        This produces the same PNG-formatted image as display_job_property, but from any Python script,
+        using WebMO's viewers in headless Chromium. The browser is started on first use and reused for
+        later calls; call close_renderer() to shut it down early. Requires WebMO 24 or higher and the
+        optional Playwright dependency: pip install 'webmo[render]' && python -m playwright install chromium
+
+        This is a regular (synchronous) method and cannot be called inside a running asyncio event loop,
+        such as a Jupyter notebook; use 'await display_job_property(...)' there instead.
+
+        Arguments:
+            job_number(int): The job about whom to return information
+            property_name(str): The name of the property to display; see display_job_property for the choices
+            filename(str, optional): If given, the image is also saved to this path. A "png" extension is added, if not provided.
+            timeout(float, optional): Seconds to wait for the image (default 60)
+
+            All other arguments are as for display_job_property.
+
+        Returns:
+            The PNG-formatted image, as bytes.
+        """
+        from .render import HeadlessRenderer
+
+        #checked only before the browser starts: Playwright's sync API then runs its own event loop
+        if getattr(self, '_renderer', None) is None:
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                pass
+            else:
+                raise RuntimeError("render_job_property cannot run inside an asyncio event loop (e.g. Jupyter); "
+                                   "use 'await display_job_property(...)' there instead")
+
+        javascript_string = self._property_javascript(job_number, property_name, property_index, peak_width, tms_shift,
+            proton_coupling, nmr_field, x_range, y_range, width, height, background_color, transparent_background,
+            rotate)
+
+        if getattr(self, '_renderer', None) is None:
+            config = self.get_status_info()
+            if int(config["version"].split(".")[0]) < 24:
+                raise RuntimeError("Rendering images requires WebMO 24 or higher")
+            self._renderer = HeadlessRenderer(self._viewer_setup_html(config), timeout)
+        data = self._renderer.render(javascript_string, timeout)
+
+        if filename:
+            if not filename.endswith(".png"):
+                filename += ".png"
+            with open(filename, 'wb') as fp:
+                fp.write(data)
+        return data
+
+    def close_renderer(self):
+        """Shuts down the headless browser started by render_job_property, if any."""
+        if getattr(self, '_renderer', None) is not None:
+            self._renderer.close()
+            self._renderer = None
+
+    def _property_javascript(self, job_number, property_name, property_index=1, peak_width=0.0, tms_shift=0.0,
+            proton_coupling=0.0, nmr_field=400.0, x_range=None, y_range=None, width=400, height=400,
+            background_color=(255,255,255), transparent_background=False, rotate=(0.,0.,0.), callback_port=0):
+        """Builds the Javascript that draws the specified property and requests a screenshot of it.
+
+        Shared by display_job_property (Jupyter) and render_job_property (headless browser); see
+        display_job_property for the arguments. callback_port is where the screenshot is sent in Jupyter.
+
+        Returns:
+            The Javascript to evaluate in a page prepared with _viewer_setup_html
+        """
+        from math import sqrt
 
         r = requests.get(self._base_url + "/jobs/%d/geometry" % job_number, params=self._auth)
         WebMOREST._check_status(r)
@@ -515,107 +610,108 @@ class WebMOREST:
         property_string = ""
         WAVEFUNCTION_PROPERTIES = ["mo", "nao", "nho", "nbo", "esp", "nucleophilic", "electrophilic", "radical"]
         SURFACE_PROPERTIES = ["esp", "nucleophilic", "electrophilic", "radical"]
-        if property_name == "geometry":
-            #do nothing special
-            pass
+        try:
+            if property_name == "geometry":
+                #do nothing special
+                pass
 
-        elif property_name == "dipole_moment":
-            dipole_moment = results['properties']['dipole_moment']
-            total_dipole = sqrt(dipole_moment[0]**2 + dipole_moment[1]**2 + dipole_moment[2]**2)
-            property_string = "%f:%f:%f:%f" % (*dipole_moment,total_dipole)
-            javascript_string += self._set_moledit_dipole_moment(property_string)
+            elif property_name == "dipole_moment":
+                dipole_moment = results['properties']['dipole_moment']
+                total_dipole = sqrt(dipole_moment[0]**2 + dipole_moment[1]**2 + dipole_moment[2]**2)
+                property_string = "%f:%f:%f:%f" % (*dipole_moment,total_dipole)
+                javascript_string += self._set_moledit_dipole_moment(property_string)
             
-        elif property_name == "partial_charges":
-            partial_charges = results['properties']['partial_charges']['mulliken']
-            for i in range(len(partial_charges)):
-                property_string += "%d,X,%f:" % (i+1,partial_charges[i])
-            property_string = property_string.rstrip(":")
-            javascript_string += self._set_moledit_partial_charge(property_string)
+            elif property_name == "partial_charges":
+                partial_charges = results['properties']['partial_charges']['mulliken']
+                for i in range(len(partial_charges)):
+                    property_string += "%d,X,%f:" % (i+1,partial_charges[i])
+                property_string = property_string.rstrip(":")
+                javascript_string += self._set_moledit_partial_charge(property_string)
             
-        elif property_name == "vibrational_mode":
-            frequency = results['properties']['vibrations']['frequencies'][property_index-1]
-            displacements = results['properties']['vibrations']['displacement'][property_index-1]
-            for i in range(len(displacements)//3):
-                property_string += "%d,%f,%f,%f:" % (i+1,displacements[i*3+0],displacements[i*3+1],displacements[i*3+2])
-            property_string = property_string.rstrip(":")
-            javascript_string += self._set_moledit_vibrational_mode(property_string, property_index, frequency, 1.0)
+            elif property_name == "vibrational_mode":
+                frequency = results['properties']['vibrations']['frequencies'][property_index-1]
+                displacements = results['properties']['vibrations']['displacement'][property_index-1]
+                for i in range(len(displacements)//3):
+                    property_string += "%d,%f,%f,%f:" % (i+1,displacements[i*3+0],displacements[i*3+1],displacements[i*3+2])
+                property_string = property_string.rstrip(":")
+                javascript_string += self._set_moledit_vibrational_mode(property_string, property_index, frequency, 1.0)
             
-        elif property_name in WAVEFUNCTION_PROPERTIES:
-            if property_name in SURFACE_PROPERTIES:
-                property_index = 0 #this is required
-            javascript_string += self._rotate_moledit_view(rotate[0],rotate[1],rotate[2])
-            javascript_string += self._set_moledit_wavefunction(job_number, property_name, property_index, transparent_background) #handles screenshot in callback
+            elif property_name in WAVEFUNCTION_PROPERTIES:
+                if property_name in SURFACE_PROPERTIES:
+                    property_index = 0 #this is required
+                javascript_string += self._rotate_moledit_view(rotate[0],rotate[1],rotate[2])
+                javascript_string += self._set_moledit_wavefunction(job_number, property_name, property_index, transparent_background, callback_port) #handles screenshot in callback
             
-        elif property_name in ["ir_spectrum", "raman_spectrum", "vcd_spectrum"]:
-            frequencies = results['properties']['vibrations']['frequencies']
-            if property_name == "ir_spectrum":
-                intensities = results['properties']['vibrations']['intensities']['IR']
-            elif property_name == "raman_spectrum":
-                intensities = results['properties']['vibrations']['intensities']['raman']
+            elif property_name in ["ir_spectrum", "raman_spectrum", "vcd_spectrum"]:
+                frequencies = results['properties']['vibrations']['frequencies']
+                if property_name == "ir_spectrum":
+                    intensities = results['properties']['vibrations']['intensities']['IR']
+                elif property_name == "raman_spectrum":
+                    intensities = results['properties']['vibrations']['intensities']['raman']
+                else:
+                    intensities = results['properties']['vibrations']['intensities']['VCD']
+
+                for i in range(len(frequencies)):
+                    property_string += "%d,-,%f,%f:" % (i+1,frequencies[i],intensities[i])
+                property_string = property_string.rstrip(":")
+
+                if property_name == "ir_spectrum":
+                    javascript_string += self._set_datagrapher_ir_spectrum(property_string, peak_width if peak_width > 0 else 40.0)
+                elif property_name == "raman_spectrum":
+                    javascript_string += self._set_datagrapher_raman_spectrum(property_string, peak_width if peak_width > 0 else 40.0)
+                else:
+                    javascript_string += self._set_datagrapher_vcd_spectrum(property_string, peak_width if peak_width > 0 else 40.0)
+
+            elif property_name == "uvvis_spectrum":
+                transition_energies = results['properties']['excited_states']['transition_energies']
+                intensities = results['properties']['excited_states']['intensities']
+                units = results['properties']['excited_states']['units']
+
+                for i in range(len(transition_energies)):
+                    property_string += "%d,-,%f,%f:" % (i+1,transition_energies[i],intensities[i])
+                property_string = property_string.rstrip(":")
+
+                javascript_string += self._set_datagrapher_uvvis_spectrum(property_string, units, peak_width if peak_width > 0 else 20.0)
+
+            elif property_name == "hnmr_spectrum" or property_name == "cnmr_spectrum":
+                symbols = results['symbols']
+                isotropic = results['properties']['nmr_shifts']['isotropic']
+                anisotropy = results['properties']['nmr_shifts']['anisotropy']
+
+                for i in range(len(isotropic)):
+                    if tms_shift > 0 and symbols[i] == "H":
+                        isotropic[i] = tms_shift - isotropic[i] #apply the TMS shift, if provided
+                    property_string += "%d,%s,%f,%f:" % (i+1,symbols[i],isotropic[i],anisotropy[i])
+                property_string = property_string.rstrip(":")
+
+                atom_type = "C" if property_name == "cnmr_spectrum" else "H"
+                peak_width  = peak_width if peak_width > 0 else 0.001
+                relative_spectrum = 1 if tms_shift > 0 and atom_type == "H" else 0
+
+                if atom_type == "H" and proton_coupling > 0:
+                    javascript_string += self._set_datagrapher_h1nmr_spectrum(property_string, peak_width, proton_coupling, nmr_field, relative_spectrum)
+                else:
+                    javascript_string += self._set_datagrapher_nmr_spectrum(property_string, atom_type, peak_width, relative_spectrum)
+
             else:
-                intensities = results['properties']['vibrations']['intensities']['VCD']
+                raise ValueError("Invalid property_name specified")
+        except (KeyError, IndexError, TypeError):
+            raise ValueError("Job %d has no %s data for '%s'%s" % (job_number,
+                _PROPERTY_DATA.get(property_name, property_name), property_name,
+                " (or property_index %d is out of range)" % property_index if property_index > 1 else "")) from None
 
-            for i in range(len(frequencies)):
-                property_string += "%d,-,%f,%f:" % (i+1,frequencies[i],intensities[i])
-            property_string = property_string.rstrip(":")
-
-            if property_name == "ir_spectrum":
-                javascript_string += self._set_datagrapher_ir_spectrum(property_string, peak_width if peak_width > 0 else 40.0)
-            elif property_name == "raman_spectrum":
-                javascript_string += self._set_datagrapher_raman_spectrum(property_string, peak_width if peak_width > 0 else 40.0)
-            else:
-                javascript_string += self._set_datagrapher_vcd_spectrum(property_string, peak_width if peak_width > 0 else 40.0)
-
-        elif property_name == "uvvis_spectrum":
-            transition_energies = results['properties']['excited_states']['transition_energies']
-            intensities = results['properties']['excited_states']['intensities']
-            units = results['properties']['excited_states']['units']
-
-            for i in range(len(transition_energies)):
-                property_string += "%d,-,%f,%f:" % (i+1,transition_energies[i],intensities[i])
-            property_string = property_string.rstrip(":")
-
-            javascript_string += self._set_datagrapher_uvvis_spectrum(property_string, units, peak_width if peak_width > 0 else 20.0)
-
-        elif property_name == "hnmr_spectrum" or property_name == "cnmr_spectrum":
-            symbols = results['symbols']
-            isotropic = results['properties']['nmr_shifts']['isotropic']
-            anisotropy = results['properties']['nmr_shifts']['anisotropy']
-
-            for i in range(len(isotropic)):
-                if tms_shift > 0 and symbols[i] == "H":
-                    isotropic[i] = tms_shift - isotropic[i] #apply the TMS shift, if provided
-                property_string += "%d,%s,%f,%f:" % (i+1,symbols[i],isotropic[i],anisotropy[i])
-            property_string = property_string.rstrip(":")
-
-            atom_type = "C" if property_name == "cnmr_spectrum" else "H"
-            peak_width  = peak_width if peak_width > 0 else 0.001
-            relative_spectrum = 1 if tms_shift > 0 and atom_type == "H" else 0
-
-            if atom_type == "H" and proton_coupling > 0:
-                javascript_string += self._set_datagrapher_h1nmr_spectrum(property_string, peak_width, proton_coupling, nmr_field, relative_spectrum)
-            else:
-                javascript_string += self._set_datagrapher_nmr_spectrum(property_string, atom_type, peak_width, relative_spectrum)
-
-        else:
-            raise ValueError("Invalid property_name specified")
-        
         if not property_name in WAVEFUNCTION_PROPERTIES: #these are already done in the setWavefunction callback
             if property_name.endswith("spectrum"):
                 if x_range is not None:
                     javascript_string += self._set_x_range(x_range[0], x_range[1])
                 if y_range is not None:
                     javascript_string += self._set_y_range(y_range[0], y_range[1])
-                javascript_string += self._display_datagrapher_screenshot()
+                javascript_string += self._display_datagrapher_screenshot(callback_port)
             else:
                 javascript_string += self._rotate_moledit_view(rotate[0],rotate[1],rotate[2])
-                javascript_string += self._display_moledit_screenshot(transparent_background)
+                javascript_string += self._display_moledit_screenshot(transparent_background, callback_port)
 
-        #display the Javascript for execution
-        display(Javascript("_call_when_ready(function(){%s})" % javascript_string))
-        clear_output()
-        #wait for the Javascript callback and process / display the result
-        return await self._process_callback_response()
+        return "_call_when_ready(function(){%s})" % javascript_string
 
 
     #
@@ -694,20 +790,15 @@ class WebMOREST:
             return False
         return body.get('mfaRequired', False) and body.get('error') == 'MFA code required'
 
-    def _inject_javascript(self):
-        if self._init_javascript:
-            config = self.get_status_info()
-            major_version = int(config["version"].split(".")[0])
-            
-            #ensure WebMO support as well, otherwise disable IPython features
-            if major_version < 24:
-                global has_ipython
-                has_ipython = False
-                return
-                
-            try:
-                ipython = get_ipython()
-                ipython.run_cell_magic("html", "", "\
+    def _viewer_setup_html(self, config):
+        """Returns the HTML that loads WebMO's MolEdit and DataGrapher viewers into a page.
+
+        Used for the Jupyter notebook (_inject_javascript) and the headless renderer (render_job_property).
+
+        Arguments:
+            config(dict): The server status information, from get_status_info()
+        """
+        return "\
                 <script src='%s/javascript/jquery.js'></script>\
                 <script src='%s/javascript/moledit_js/moledit_js.nocache.js'></script>\
                 <script src='%s/javascript/jupyter_moledit.js'></script>\
@@ -749,7 +840,22 @@ class WebMOREST:
                     function _clear_lock() {\
                         window.render_lock = 0;\
                     }\
-                </script>" % (config['url_html'], config['url_html'], config['url_html'], config['url_cgi']))
+                </script>" % (config['url_html'], config['url_html'], config['url_html'], config['url_cgi'])
+
+    def _inject_javascript(self):
+        if self._init_javascript:
+            config = self.get_status_info()
+            major_version = int(config["version"].split(".")[0])
+            
+            #ensure WebMO support as well, otherwise disable IPython features
+            if major_version < 24:
+                global has_ipython
+                has_ipython = False
+                return
+                
+            try:
+                ipython = get_ipython()
+                ipython.run_cell_magic("html", "", self._viewer_setup_html(config))
                 self._init_javascript = False
             except:
                 has_ipython = False
@@ -770,8 +876,8 @@ class WebMOREST:
     def _set_moledit_vibrational_mode(self, value, mode, freq, scale):
         return "_set_moledit_vibrational_mode('%s', %d, %f, %f);" % (value, mode, freq, scale)
     
-    def _set_moledit_wavefunction(self, job_number, wavefunction_type, mo_index, transparent_background):
-        return "_set_moledit_wavefunction(%d,'%s', %d, %d, %s);" % (job_number, wavefunction_type, mo_index, self._callback_port, 'true' if transparent_background else 'false')
+    def _set_moledit_wavefunction(self, job_number, wavefunction_type, mo_index, transparent_background, callback_port):
+        return "_set_moledit_wavefunction(%d,'%s', %d, %d, %s);" % (job_number, wavefunction_type, mo_index, callback_port, 'true' if transparent_background else 'false')
         
     def _set_datagrapher_ir_spectrum(self, value, peak_width):
         return "_set_datagrapher_ir_spectrum('%s', %f);" % (value, peak_width)
@@ -806,11 +912,11 @@ class WebMOREST:
     def _rotate_moledit_view(self,rx,ry,rz):
          return "_rotate_moledit_view(%f,%f,%f);" % (rx, ry, rz)
             
-    def _display_moledit_screenshot(self, transparent_background):
-        return "_display_moledit_screenshot(%d,%s);" % (self._callback_port, 'true' if transparent_background else 'false')
+    def _display_moledit_screenshot(self, transparent_background, callback_port):
+        return "_display_moledit_screenshot(%d,%s);" % (callback_port, 'true' if transparent_background else 'false')
 
-    def _display_datagrapher_screenshot(self):
-        return "_display_datagrapher_screenshot(%d);" % self._callback_port
+    def _display_datagrapher_screenshot(self, callback_port):
+        return "_display_datagrapher_screenshot(%d);" % callback_port
 
     #
     # Methods for handling WebSocket data connections and callbacks

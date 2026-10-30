@@ -36,6 +36,7 @@ setup(
       "spectrum": ["numpy"],
       "util": ["PubChemPy"],
       "gui": ["questionary", "ipywidgets"],
+      "render": ["playwright"],  #headless image rendering; also run: python -m playwright install chromium
       "all": ["numpy", "PubChemPy", "questionary", "ipywidgets"]
   }
 )
