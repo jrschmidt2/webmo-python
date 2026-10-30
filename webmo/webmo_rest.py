@@ -16,29 +16,42 @@ class WebMOREST:
     creation/destruction.
     """
     
-    def __init__(self, base_url, username, password="", expiration=24):
+    def __init__(self, base_url, username, password="", expiration=24, totp="", recovery_code=""):
         """Constructor for WebMOREST
-        
+
         This constructor generates a WebMOREST object and also generates and stores a newly
         session token.
-        
+
         Args:
             base_url(str): The base URL (ending in rest.cgi) of the WeBMO rest endpoint
             username(str): The WebMO username
             password(str, optional): The WebMO password; if omitted, this is supplied interactively
             expiration(int, optional): The expiration time (in hours) of the REST session token
-            
+            totp(str, optional): The current TOTP code from an authenticator app, for users with MFA enabled;
+                if omitted and MFA is required, a TOTP or recovery code is supplied interactively
+            recovery_code(str, optional): A single-use MFA recovery code, as an alternative to totp
+
         Returns:
             object: The newly constructed WebMO object
         """
         from getpass import getpass
-        
+
         #prompt for WebMO password if not specified
         if not password:
             password=getpass(prompt="Enter WebMO password for user %s:" % username)
         #obtain a REST token using the specified credentials
-        login={'username' : username, 'password' : password, 'expiration' : expiration}
+        login={'username' : username, 'password' : password, 'expiration' : expiration,
+            'totp' : totp, 'recoveryCode' : recovery_code}
         r = requests.post(base_url + '/sessions', data=login)
+        #prompt for an MFA code if required but not specified; a request without a code
+        #does not count as a failed MFA attempt, and a lockout is reported as an error below
+        if not totp and not recovery_code and WebMOREST._is_mfa_required(r):
+            code = input("Enter WebMO MFA code (or recovery code) for user %s:" % username).strip()
+            if code.isdigit():
+                login['totp'] = code
+            else:
+                login['recoveryCode'] = code
+            r = requests.post(base_url + '/sessions', data=login)
         WebMOREST._check_status(r) #raise an exception if there is a problem with the request
         
         self._base_url = base_url
@@ -53,14 +66,15 @@ class WebMOREST:
         
         This destructor automatically deletes the session token using the REST interface
         """
-        #End the REST sessions; check in case requests has already been released
-        if requests.delete is not None:
+        #End the REST sessions; check in case requests has already been released,
+        #or the constructor failed before a session token was obtained
+        if requests.delete is not None and hasattr(self, '_auth'):
             r = requests.delete(self._base_url + '/sessions', params=self._auth)
         #do not raise an exception for a failed request in this case due to issues
         #with object management in Jupyter (i.e. on code re-run, a new token is made
         #prior to deletion!)
 
-        if self._callback_listener is not None:
+        if getattr(self, '_callback_listener', None) is not None:
             self._callback_listener.close()
     
     #
@@ -667,7 +681,19 @@ class WebMOREST:
             # Overwrite the exception arguments with your new message
             e.args = (new_message,)
             raise e
-    
+
+    @staticmethod
+    def _is_mfa_required(response):
+        #MFA-enabled users without a valid code receive a 401 flagged with mfaRequired;
+        #an MFA lockout is flagged the same way, but prompting for a code would not help
+        if response.status_code != 401:
+            return False
+        try:
+            body = response.json()
+        except ValueError:
+            return False
+        return body.get('mfaRequired', False) and body.get('error') == 'MFA code required'
+
     def _inject_javascript(self):
         if self._init_javascript:
             config = self.get_status_info()
