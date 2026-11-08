@@ -1,6 +1,7 @@
 import requests
 import json
 import asyncio
+import time
 
 try:
     from IPython.display import display, clear_output, Javascript, Image
@@ -25,15 +26,38 @@ class UnsupportedServerError(RuntimeError):
     """The WebMO server is too old for the requested feature."""
 
 
+class SessionExpiredError(requests.exceptions.HTTPError):
+    """The REST session token has expired or was revoked (HTTP 401); log in again."""
+
+
+class MFARequiredError(requests.exceptions.HTTPError):
+    """The account uses multi-factor authentication, and no MFA code was given (non-interactive login)."""
+
+#wait_for_job's default polling: (seconds since the wait began, poll interval in seconds), in order
+_WAIT_SCHEDULE = ((60, 5), (6 * 60, 30), (16 * 60, 60), (76 * 60, 120))
+_WAIT_LATE_INTERVAL = 300
+_WAIT_MAX_RETRY_INTERVAL = 600
+_FINISHED = ('complete', 'failed')
+
+
 class WebMOREST:
     """The WebMOREST class provides an object-oriented Python API for the WebMO REST interface.
     
-    The WebMOREST class provides a simple Python API to access the WebMO REST interface. As of now
-    there are no public methods. Session tokens are handled automatically handled during object
-    creation/destruction.
+    The WebMOREST class provides a simple Python API to access the WebMO REST interface.
+
+    Logging in with a password creates a REST session that this object owns: close() ends it, as
+    does leaving a "with" block or deleting the object. WebMOREST.from_token() instead uses an
+    existing session, which is never ended by this object.
     """
-    
-    def __init__(self, base_url, username, password="", expiration=24, totp="", recovery_code=""):
+
+    _owns_session = False
+    _timeout = None
+    _init_javascript = True
+    _callback_listener = None
+    _renderer = None
+
+    def __init__(self, base_url, username, password="", expiration=24, totp="", recovery_code="", timeout=None,
+                 interactive=True):
         """Constructor for WebMOREST
 
         This constructor generates a WebMOREST object and also generates and stores a newly
@@ -43,59 +67,120 @@ class WebMOREST:
             base_url(str): The base URL (ending in rest.cgi) of the WeBMO rest endpoint
             username(str): The WebMO username
             password(str, optional): The WebMO password; if omitted, this is supplied interactively
+                (unless interactive is False)
             expiration(int, optional): The expiration time (in hours) of the REST session token
             totp(str, optional): The current TOTP code from an authenticator app, for users with MFA enabled;
                 if omitted and MFA is required, a TOTP or recovery code is supplied interactively
+                (unless interactive is False)
             recovery_code(str, optional): A single-use MFA recovery code, as an alternative to totp
+            timeout(float or tuple, optional): The timeout of each REST request, in seconds, as for
+                the requests package: a number, or (connect, read); the default None waits indefinitely
+            interactive(bool, optional): Whether to prompt for a missing password or MFA code; False
+                (e.g. in a server, or a script without a terminal) raises an exception instead
 
         Returns:
             object: The newly constructed WebMO object
+
+        Raises:
+            ValueError: No password was given, and interactive is False
+            MFARequiredError: The account needs an MFA code, none was given, and interactive is False
+            requests.HTTPError: The login failed (e.g. a wrong password or MFA code, or a lockout)
         """
         from getpass import getpass
 
         #prompt for WebMO password if not specified
         if not password:
+            if not interactive:
+                raise ValueError("A password is needed to log in as %s" % username)
             password=getpass(prompt="Enter WebMO password for user %s:" % username)
         #obtain a REST token using the specified credentials
         login={'username' : username, 'password' : password, 'expiration' : expiration,
             'totp' : totp, 'recoveryCode' : recovery_code}
-        r = requests.post(base_url + '/sessions', data=login)
+        r = requests.post(base_url + '/sessions', data=login, timeout=timeout)
         #prompt for an MFA code if required but not specified; a request without a code
         #does not count as a failed MFA attempt, and a lockout is reported as an error below
         if not totp and not recovery_code and WebMOREST._is_mfa_required(r):
+            if not interactive:
+                raise MFARequiredError("401 Unauthorized: user %s needs an MFA code (totp or recovery_code) to log in"
+                                       "\nResponse Body: %s" % (username, r.text[:500]), response=r)
             code = input("Enter WebMO MFA code (or recovery code) for user %s:" % username).strip()
             if code.isdigit():
                 login['totp'] = code
             else:
                 login['recoveryCode'] = code
-            r = requests.post(base_url + '/sessions', data=login)
-        WebMOREST._check_status(r) #raise an exception if there is a problem with the request
-        
+            r = requests.post(base_url + '/sessions', data=login, timeout=timeout)
+        WebMOREST._check_status(r, login=True) #raise an exception if there is a problem with the request
+
         self._base_url = base_url
         self._auth=r.json() #save an authorization token need to authenticate future REST requests
-        
-        if has_ipython:
-            self._init_javascript = True
-            self._callback_listener = None
-        
+        self._timeout = timeout
+        self._owns_session = True
+
+    @classmethod
+    def from_token(cls, base_url, username, token, timeout=None):
+        """Returns a WebMOREST object that uses an existing REST session.
+
+        No request is made, so an invalid or expired token is reported (as SessionExpiredError) by
+        the first call that uses it. The session is never ended by this object: close() leaves it
+        open, so that whoever created it can keep using it.
+
+        Args:
+            base_url(str): The base URL (ending in rest.cgi) of the WebMO rest endpoint
+            username(str): The WebMO username the session belongs to
+            token(str): The REST session token
+            timeout(float or tuple, optional): The timeout of each REST request, as for the constructor
+
+        Returns:
+            object: The new WebMOREST object
+        """
+        self = cls.__new__(cls)
+        self._base_url = base_url
+        self._auth = {'username': username, 'token': token}
+        self._timeout = timeout
+        return self
+
+    @property
+    def username(self):
+        """The WebMO username of this REST session."""
+        return self._auth['username']
+
+    @property
+    def token(self):
+        """The token of this REST session."""
+        return self._auth['token']
+
+    def close(self):
+        """Shuts down any image renderer and Jupyter callback listener, and ends the REST session if
+        this object created it (by logging in with a password). Calling it again does nothing.
+        """
+        if self._callback_listener is not None:
+            listener, self._callback_listener = self._callback_listener, None
+            listener.close()
+        self.close_renderer()
+        if self._owns_session and hasattr(self, '_auth'):
+            self._owns_session = False
+            #a failed logout is not an error: the session expires anyway
+            try:
+                requests.delete(self._base_url + '/sessions', params=self._auth, timeout=self._timeout or 30)
+            except Exception:
+                pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
     def __del__(self):
         """Destructor for WebMOREST
-        
-        This destructor automatically deletes the session token using the REST interface
+
+        This destructor calls close(), which ends the REST session if this object created it.
         """
-        #End the REST sessions; check in case requests has already been released,
-        #or the constructor failed before a session token was obtained
-        if requests.delete is not None and hasattr(self, '_auth'):
-            r = requests.delete(self._base_url + '/sessions', params=self._auth)
-        #do not raise an exception for a failed request in this case due to issues
-        #with object management in Jupyter (i.e. on code re-run, a new token is made
-        #prior to deletion!)
-
-        if getattr(self, '_callback_listener', None) is not None:
-            self._callback_listener.close()
-
-        if getattr(self, '_renderer', None) is not None:
-            self._renderer.close()
+        #this may run during interpreter shutdown, when modules are already being released
+        try:
+            self.close()
+        except Exception:
+            pass
 
     #
     # Users resource
@@ -111,7 +196,7 @@ class WebMOREST:
             A list of users
         """
         
-        r = requests.get(self._base_url + "/users", params=self._auth)
+        r = requests.get(self._base_url + "/users", params=self._auth, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()["users"]
         
@@ -128,7 +213,7 @@ class WebMOREST:
             A JSON formatted string summarizing the user information
         """
         
-        r = requests.get(self._base_url + "/users/%s" % username, params=self._auth)
+        r = requests.get(self._base_url + "/users/%s" % username, params=self._auth, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()
 
@@ -145,7 +230,7 @@ class WebMOREST:
             A list of groups
         """
         
-        r = requests.get(self._base_url + "/groups", params=self._auth)
+        r = requests.get(self._base_url + "/groups", params=self._auth, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()["groups"]
         
@@ -162,7 +247,7 @@ class WebMOREST:
             A JSON formatted string summarizing the group information
         """
         
-        r = requests.get(self._base_url + "/groups/%s" % groupname, params=self._auth)
+        r = requests.get(self._base_url + "/groups/%s" % groupname, params=self._auth, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()
         
@@ -186,7 +271,7 @@ class WebMOREST:
         #append other relevant parameters
         params = self._auth.copy()
         params.update({'user' : target_user})
-        r = requests.get(self._base_url + "/folders", params=params)
+        r = requests.get(self._base_url + "/folders", params=params, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()["folders"]
     
@@ -212,7 +297,7 @@ class WebMOREST:
         #append other relevant paramters
         params = self._auth.copy()
         params.update({'engine' : engine, 'status' : status, 'folderID' : folder_id, 'jobName' : job_name, 'user' : target_user})
-        r = requests.get(self._base_url + '/jobs', params=params)
+        r = requests.get(self._base_url + '/jobs', params=params, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()["jobs"]
         
@@ -236,14 +321,17 @@ class WebMOREST:
         self._check_valid_job_list(job_numbers)
 
         if len(job_numbers) == 1:
-            r = requests.get(self._base_url + "/jobs/%d" % job_numbers[0], params=self._auth)
+            r = requests.get(self._base_url + "/jobs/%d" % job_numbers[0], params=self._auth, timeout=self._timeout)
             WebMOREST._check_status(r)
             return r.json()
+        return self._get_job_infos(job_numbers)
 
+    def _get_job_infos(self, job_numbers):
+        #get_job_info for one or more jobs, always as a list with an "error" entry for an unreadable job
         if getattr(self, '_multi_job_info', True):
             params = self._auth.copy()
             params.update({'jobNumber': ",".join(str(int(job_number)) for job_number in job_numbers)})
-            r = requests.get(self._base_url + "/jobs/info", params=params)
+            r = requests.get(self._base_url + "/jobs/info", params=params, timeout=self._timeout)
             if r.status_code not in (403, 404):
                 WebMOREST._check_status(r)
                 return r.json()
@@ -252,7 +340,7 @@ class WebMOREST:
 
         info = []
         for job_number in job_numbers:
-            r = requests.get(self._base_url + "/jobs/%d" % job_number, params=self._auth)
+            r = requests.get(self._base_url + "/jobs/%d" % job_number, params=self._auth, timeout=self._timeout)
             if r.status_code in (403, 404):
                 try:
                     error = r.json()["error"]
@@ -285,13 +373,13 @@ class WebMOREST:
 
         if (len(job_numbers) == 1):
             #handle case of single job, return JSON dictionary for single job
-            r = requests.get(self._base_url + "/jobs/%d/results" % job_numbers[0], params=self._auth)
+            r = requests.get(self._base_url + "/jobs/%d/results" % job_numbers[0], params=self._auth, timeout=self._timeout)
         else:
             #handle case of multiple jobs, return JSON array of dictionaries
             #append other relevant parameters
             params = self._auth.copy()
             params.update({'jobNumber' : ",".join(str(job_number) for job_number in job_numbers)})
-            r = requests.get(self._base_url + "/jobs/results", params=params)
+            r = requests.get(self._base_url + "/jobs/results", params=params, timeout=self._timeout)
 
         WebMOREST._check_status(r)
         return r.json()
@@ -308,7 +396,7 @@ class WebMOREST:
             A string containing XYZ formatted optimized geometry
         """
         
-        r = requests.get(self._base_url + "/jobs/%d/geometry" % job_number, params=self._auth)
+        r = requests.get(self._base_url + "/jobs/%d/geometry" % job_number, params=self._auth, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()["xyz"]
         
@@ -325,7 +413,7 @@ class WebMOREST:
             A string containing the contents of the raw output file
         """
         
-        r = requests.get(self._base_url + "/jobs/%d/raw_output" % job_number, params=self._auth)
+        r = requests.get(self._base_url + "/jobs/%d/raw_output" % job_number, params=self._auth, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.text
 
@@ -397,7 +485,7 @@ class WebMOREST:
 
     def _get_output_lines(self, job_number, params):
         params.update(self._auth)
-        r = requests.get(self._base_url + "/jobs/%d/raw_output" % job_number, params=params)
+        r = requests.get(self._base_url + "/jobs/%d/raw_output" % job_number, params=params, timeout=self._timeout)
         WebMOREST._check_status(r)
         if not r.headers.get("Content-Type", "").startswith("application/json"):
             #older servers ignore the parameters and return the whole file
@@ -422,7 +510,7 @@ class WebMOREST:
         #append other relevant parameters
         params = self._auth.copy()
         params.update({'jobNumber' : ",".join(str(job_number) for job_number in job_numbers)})
-        r = requests.get(self._base_url + "/jobs/archive" % (), params=params)
+        r = requests.get(self._base_url + "/jobs/archive" % (), params=params, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.text
         
@@ -443,7 +531,7 @@ class WebMOREST:
         #append other relevant parameters
         params = self._auth.copy()
         params.update({'jobNumber' : ",".join(str(job_number) for job_number in job_numbers)})
-        r = requests.get(self._base_url + "/jobs/spreadsheet" % (), params=params)
+        r = requests.get(self._base_url + "/jobs/spreadsheet" % (), params=params, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.text
         
@@ -456,7 +544,7 @@ class WebMOREST:
             job_number(int): The job to delete
         """
         
-        r = requests.delete(self._base_url + "/jobs/%d" % job_number, params=self._auth)
+        r = requests.delete(self._base_url + "/jobs/%d" % job_number, params=self._auth, timeout=self._timeout)
         WebMOREST._check_status(r)
         
     def import_job(self, job_name, output_filename, engine):
@@ -477,7 +565,7 @@ class WebMOREST:
         params = self._auth.copy()
         params.update({'jobName' : job_name, 'engine' : engine})
         output_file = {'outputFile' : ('output.log', open(output_filename, 'rb'), 'text/plain')}
-        r = requests.post(self._base_url + '/jobs', data=params, files=output_file)
+        r = requests.post(self._base_url + '/jobs', data=params, files=output_file, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()["jobNumber"]
         
@@ -504,7 +592,7 @@ class WebMOREST:
         params = self._auth.copy()
         params.update({'jobName' : job_name, 'engine' : engine, 'inputFile': input_contents,
             'queue': queue, 'nodes': nodes, 'ppn': ppn, **kwargs})
-        r = requests.post(self._base_url + '/jobs', data=params)
+        r = requests.post(self._base_url + '/jobs', data=params, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()["jobNumber"]
         
@@ -523,7 +611,7 @@ class WebMOREST:
             A dictionary of available templates, {name: template}; each template includes its 'name'
         """
 
-        r = requests.get(self._base_url + "/templates/%s" % engine, params=self._auth)
+        r = requests.get(self._base_url + "/templates/%s" % engine, params=self._auth, timeout=self._timeout)
         WebMOREST._check_status(r)
         templates = r.json()["templates"]
         for name, template in templates.items():
@@ -560,7 +648,7 @@ class WebMOREST:
         #append other relevant paramters
         params = self._auth.copy()
         params.update({'variables' : json.dumps(amend_variables)})
-        r = requests.get(self._base_url + "/templates/%s" % template['id'], params=params)
+        r = requests.get(self._base_url + "/templates/%s" % template['id'], params=params, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.text
 
@@ -619,7 +707,7 @@ class WebMOREST:
         #append other relevant parameters
         params = self._auth.copy()
         params.update({'user' : target_user})
-        r = requests.get(self._base_url + "/engines", params=params)
+        r = requests.get(self._base_url + "/engines", params=params, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()["engines"]
 
@@ -745,7 +833,7 @@ class WebMOREST:
         """
         from math import sqrt
 
-        r = requests.get(self._base_url + "/jobs/%d/geometry" % job_number, params=self._auth)
+        r = requests.get(self._base_url + "/jobs/%d/geometry" % job_number, params=self._auth, timeout=self._timeout)
         WebMOREST._check_status(r)
         geometryJSON = json.dumps(r.json())
         geometryJSON = geometryJSON.replace("\\", "\\\\")
@@ -881,7 +969,7 @@ class WebMOREST:
             A JSON formatted string summarizing the status information
         """
         
-        r = requests.get(self._base_url + "/status", params=self._auth)
+        r = requests.get(self._base_url + "/status", params=self._auth, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()
         
@@ -889,38 +977,89 @@ class WebMOREST:
     #
     # Helper functions
     #
-    def wait_for_job(self, *job_numbers, poll_frequency=5):
+    def wait_for_job(self, *job_numbers, poll_frequency=None, timeout=None, callback=None):
         """Waits for completion of the specified WebMO jobs(s)
-        
-        This call blocks until the specified WebMO job(s) have all finished executing (successfully or not)
-        
-        Arguments:
-            job_numbers(list): A list of job numbers which will be waited upon
-            poll_frequency(int, optional): The frequency at which to check the job status (default is 5s)
-        """
-        from time import sleep
-        
-        status = {}
-        done = False
-        
-        for job_number in job_numbers:
-            status[job_number] = ''
 
-        while not done:
-            done = True
-            for job_number in job_numbers:
-                if status[job_number] != 'complete' and status[job_number] != 'failed':
-                    status[job_number] = self.get_job_info(job_number)['properties']['jobStatus']
-                    if status[job_number] != 'complete' and status[job_number] != 'failed':
-                        done = False
-            if not done:
-                sleep(poll_frequency)
-            
+        This call blocks until the specified WebMO job(s) have all finished executing (successfully or
+        not), or until the timeout. By default it polls often at first and then less often: every 5 s
+        for the first minute, then every 30 s, 1 minute and 2 minutes, and every 5 minutes after the
+        first 76 minutes. Network errors and server errors (5xx) are retried, waiting longer after
+        each one (up to 10 minutes).
+
+        Arguments:
+            job_numbers(int): The job(s) to wait for
+            poll_frequency(float, optional): A fixed interval between status checks, in seconds,
+                instead of the default schedule
+            timeout(float, optional): The longest time to wait, in seconds; the default None waits
+                until every job has finished
+            callback(function, optional): Called as callback(job_number, info) whenever a job's status
+                changes, with that job's get_job_info entry ({"jobNumber", "properties"}, or
+                {"jobNumber", "error"} for a job that was deleted or can't be read)
+
+        Returns:
+            A dictionary from each job number to its status: 'complete' or 'failed' for a job that
+            finished; its current status (e.g. 'running') if the timeout came first ('' if it couldn't
+            be read at all); or None for a job that was deleted or can't be read
+
+        Raises:
+            SessionExpiredError: The REST session expired or was revoked during the wait
+        """
+        self._check_valid_job_list(job_numbers)
+        status = {int(job_number): '' for job_number in job_numbers}
+        started = time.monotonic()
+        failures = 0
+
+        while True:
+            pending = [n for n, s in status.items() if s is not None and s not in _FINISHED]
+            try:
+                infos = self._get_job_infos(pending)
+                failures = 0
+            except SessionExpiredError:
+                raise
+            except requests.exceptions.HTTPError as e:
+                if e.response is None or e.response.status_code < 500:
+                    raise
+                infos, failures = [], failures + 1
+            except requests.exceptions.RequestException:
+                infos, failures = [], failures + 1
+
+            for info in infos:
+                job_number = int(info['jobNumber'])
+                new = None if 'error' in info else info['properties'].get('jobStatus', '')
+                if new != status.get(job_number, new):
+                    status[job_number] = new
+                    if callback is not None:
+                        callback(job_number, info)
+
+            elapsed = time.monotonic() - started
+            if all(s is None or s in _FINISHED for s in status.values()):
+                return status
+            if timeout is not None and elapsed >= timeout:
+                return status
+
+            interval = poll_frequency if poll_frequency else WebMOREST._wait_interval(elapsed)
+            if failures:
+                interval = min(interval * 2 ** min(failures, 5), _WAIT_MAX_RETRY_INTERVAL)
+            if timeout is not None:
+                interval = min(interval, timeout - elapsed)
+            time.sleep(interval)
+
+    @staticmethod
+    def _wait_interval(elapsed):
+        for until, interval in _WAIT_SCHEDULE:
+            if elapsed < until:
+                return interval
+        return _WAIT_LATE_INTERVAL
+
     #
     # Private helper methods
     #
     @staticmethod
-    def _check_status(response):
+    def _check_status(response, login=False):
+        #a 401 means the session token is invalid, expired or revoked, except when logging in
+        if getattr(response, 'status_code', None) == 401 and not login:
+            raise SessionExpiredError("401 Unauthorized: the REST session has expired or was revoked; log in again"
+                                      "\nResponse Body: %s" % response.text[:500], response=response)
         try:
             response.raise_for_status()
         except requests.exceptions.HTTPError as e:
