@@ -216,21 +216,53 @@ class WebMOREST:
         WebMOREST._check_status(r)
         return r.json()["jobs"]
         
-    def get_job_info(self, job_number):
-        """Returns information about the specified job
-        
-        This call returns a JSON formatted string summarizing basic information about the requested job.
-        
+    def get_job_info(self, *job_numbers):
+        """Returns information about the specified job(s)
+
+        This call returns a JSON formatted string summarizing basic information about the requested job(s).
+        Several jobs are fetched in one request on servers that support it; older servers are asked
+        one job at a time.
+
         Arguments:
-            job_number(int): The job about whom to return information
-            
+            *job_numbers(int): The job(s) about which to return information
+
         Returns:
-            A JSON formatted string summarizing the job information
+            For a single job, a JSON formatted string summarizing the job information,
+            {"jobNumber", "properties"}. For several jobs, a list with one entry per job, in the
+            order requested: {"jobNumber", "properties"}, or {"jobNumber", "error"} for a job that
+            can't be returned (e.g. deleted, or another user's), so one such job doesn't fail the rest.
         """
-        
-        r = requests.get(self._base_url + "/jobs/%d" % job_number, params=self._auth)
-        WebMOREST._check_status(r)
-        return r.json()
+
+        self._check_valid_job_list(job_numbers)
+
+        if len(job_numbers) == 1:
+            r = requests.get(self._base_url + "/jobs/%d" % job_numbers[0], params=self._auth)
+            WebMOREST._check_status(r)
+            return r.json()
+
+        if getattr(self, '_multi_job_info', True):
+            params = self._auth.copy()
+            params.update({'jobNumber': ",".join(str(int(job_number)) for job_number in job_numbers)})
+            r = requests.get(self._base_url + "/jobs/info", params=params)
+            if r.status_code not in (403, 404):
+                WebMOREST._check_status(r)
+                return r.json()
+            #older servers read 'info' as a job number; the route never fails as a whole with 403/404
+            self._multi_job_info = False
+
+        info = []
+        for job_number in job_numbers:
+            r = requests.get(self._base_url + "/jobs/%d" % job_number, params=self._auth)
+            if r.status_code in (403, 404):
+                try:
+                    error = r.json()["error"]
+                except (ValueError, KeyError, TypeError):
+                    error = "HTTP %d" % r.status_code
+                info.append({"jobNumber": int(job_number), "error": error})
+            else:
+                WebMOREST._check_status(r)
+                info.append(r.json())
+        return info
 
     def _check_valid_job_list(self, job_numbers):
         if len(job_numbers) == 0:
@@ -283,8 +315,9 @@ class WebMOREST:
     def get_job_output(self, job_number):
         """Returns the raw text output from the specified job.
         
-        This call returns the textual raw output file from the specified job.
-        
+        This call returns the textual raw output file from the specified job. For a large output,
+        search_job_output and get_job_output_lines return only the lines needed (WebMO 26 or higher).
+
         Arguments:
             job_number(int): The job about whom to return information
             
@@ -295,7 +328,83 @@ class WebMOREST:
         r = requests.get(self._base_url + "/jobs/%d/raw_output" % job_number, params=self._auth)
         WebMOREST._check_status(r)
         return r.text
-        
+
+    def search_job_output(self, job_number, search, ignore_case=False, context=None, max_matches=None):
+        """Searches the raw output of the specified job for lines containing fixed strings.
+
+        The search runs on the server, so only the matching lines, and the lines around them, are
+        transferred. The strings are matched literally (not as regular expressions).
+
+        Arguments:
+            job_number(int): The job whose output to search
+            search(str or list of str): The string(s) to look for; a line matches if it contains any
+                of them (at most 10 strings, each 1 to 200 characters)
+            ignore_case(bool): Whether to ignore the case of ASCII letters
+            context(int): The number of lines to return before and after each match (0 to 50;
+                the server's default is 10)
+            max_matches(int): The maximum number of matches to return (1 to 200, the default)
+
+        Returns:
+            A dictionary with "jobNumber", "file" (the output file name), "totalLines", "lines" (a
+            list of {"line", "text"}, numbered from 1, with "match": True on matching lines and
+            "truncated": True on lines cut at 2000 characters), "matches" (the number returned),
+            "totalMatches" (the number in the whole file), and "truncated" (True if matches or
+            lines were left out, by max_matches or the server's 200 kB response limit)
+
+        Raises:
+            UnsupportedServerError: The server can't search job output (WebMO 26 or higher is needed)
+        """
+
+        strings = [search] if isinstance(search, str) else list(search)
+        params = {"search": strings}
+        if ignore_case:
+            params["ignoreCase"] = 1
+        if context is not None:
+            params["context"] = int(context)
+        if max_matches is not None:
+            params["maxMatches"] = int(max_matches)
+        return self._get_output_lines(job_number, params)
+
+    def get_job_output_lines(self, job_number, first=None, last=None, tail=None):
+        """Returns some lines of the raw output of the specified job.
+
+        Give either tail, or first (and optionally last). At most 1000 lines are returned.
+
+        Arguments:
+            job_number(int): The job whose output to return
+            first(int): The first line to return, numbered from 1
+            last(int): The last line to return (default: first + 999)
+            tail(int): Return the last tail lines instead (1 to 1000)
+
+        Returns:
+            A dictionary with "jobNumber", "file", "totalLines", "lines" (a list of {"line",
+            "text"}, as in search_job_output) and "truncated" (True if lines were left out by the
+            server's 200 kB response limit)
+
+        Raises:
+            UnsupportedServerError: The server can't return selected output lines (WebMO 26 or
+                higher is needed)
+        """
+
+        if (tail is None) == (first is None):
+            raise ValueError("Give either tail or first")
+        if tail is not None:
+            params = {"tail": int(tail)}
+        else:
+            last = int(first) + 999 if last is None else int(last)
+            params = {"lines": "%d-%d" % (int(first), last)}
+        return self._get_output_lines(job_number, params)
+
+    def _get_output_lines(self, job_number, params):
+        params.update(self._auth)
+        r = requests.get(self._base_url + "/jobs/%d/raw_output" % job_number, params=params)
+        WebMOREST._check_status(r)
+        if not r.headers.get("Content-Type", "").startswith("application/json"):
+            #older servers ignore the parameters and return the whole file
+            raise UnsupportedServerError("This WebMO server can't search or select lines of job output; "
+                                         "WebMO 26 or higher is needed")
+        return r.json()
+
     def get_job_archive(self, *job_numbers):
         """Returns a WebMO archive from the specified job(s).
         
