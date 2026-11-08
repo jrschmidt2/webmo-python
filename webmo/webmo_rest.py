@@ -21,6 +21,10 @@ _PROPERTY_DATA = {
     "cnmr_spectrum": "NMR",
 }
 
+class UnsupportedServerError(RuntimeError):
+    """The WebMO server is too old for the requested feature."""
+
+
 class WebMOREST:
     """The WebMOREST class provides an object-oriented Python API for the WebMO REST interface.
     
@@ -407,12 +411,15 @@ class WebMOREST:
             engine(str): The name of the computational engine for which to fetch templates.
 
         Returns:
-            A dictionary of available templates
+            A dictionary of available templates, {name: template}; each template includes its 'name'
         """
 
         r = requests.get(self._base_url + "/templates/%s" % engine, params=self._auth)
         WebMOREST._check_status(r)
-        return r.json()["templates"]
+        templates = r.json()["templates"]
+        for name, template in templates.items():
+            template.setdefault("name", name)  #older servers do not include it
+        return templates
 
 
     def generate_input(self, template, variables, auto_defaults=True):
@@ -447,6 +454,42 @@ class WebMOREST:
         r = requests.get(self._base_url + "/templates/%s" % template['id'], params=params)
         WebMOREST._check_status(r)
         return r.text
+
+    def estimate_job(self, template, variables, queue=None, nodes=None, ppn=None, scan_points=None,
+                     scan_optimized=False):
+        """Estimates the CPU time of a planned job, and recommends density fitting and direct SCF, as WebMO does
+
+        This call gives the estimate shown on WebMO's job submission page, from the server's current
+        timing data. Requires WebMO 26 or higher. The timing data is fetched on the first call and
+        reused by later ones.
+
+        Arguments:
+            template(dict): The desired job template (from get_templates)
+            variables(dict): The job variables, as for generate_input
+            queue(str, optional): The server or queue the job will run on, as for submit_job; defaults to the first
+            nodes(int, optional): The number of nodes, as for submit_job; defaults to the 'nodes' variable, or 1
+            ppn(int, optional): The number of cores per node, as for submit_job; defaults to the 'ppn' or
+                'nproc' variable, or 1
+            scan_points(int, optional): For a Coordinate Scan, the number of scan points
+            scan_optimized(bool, optional): For a Coordinate Scan, whether each point is optimized
+
+        Returns:
+            A dictionary: 'seconds' (-1 when WebMO can't estimate the job, with 'unknown_reason' saying why),
+            'formatted' (e.g. "~20-40 minutes", or "unknown"), 'recommend' ({'densityFitting': 'on' or '',
+            'directSCF': 'on' or ''}, only for settings not already in variables), 'notes', and the details
+            used: 'stoichiometry', 'natoms', 'nbasis', 'method', 'basis', 'unrestricted', 'density_fitting',
+            'cores', 'scale'
+
+        Raises:
+            UnsupportedServerError: The server is older than WebMO 26
+        """
+        from . import estimate
+
+        if getattr(self, '_estimate_data', None) is None:
+            self._estimate_data = estimate.fetch_data(self)
+        return estimate.estimate(self._estimate_data, self.get_engines(), template, variables,
+            cores=estimate.job_cores(variables, nodes, ppn), queue=queue, scan_points=scan_points,
+            scan_optimized=scan_optimized)
 
     #
     # Engines resource

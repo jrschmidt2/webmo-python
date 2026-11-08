@@ -1,0 +1,256 @@
+{
+	"_comment": "Easily scaling for future CPU speed increases",
+	"_global_scale_factor": 1.0,
+	"_comment": "These are practical scalings, not formal ones",
+	"SEMIEMPIRICAL": {
+		"ref_nbasis": 100,
+        "gaussian": {
+            "scaling_natom": "3",
+            "scaling_nbasis": "0",
+            "prefactor": "2e-7",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        },
+        "mopac": {
+            "scaling_natom": "3",
+            "scaling_nbasis": "0",
+            "prefactor": "2e-7",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        },
+        "xtb": {
+            "scaling_natom": "3",
+            "scaling_nbasis": "0",
+            "prefactor": "2e-7",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        }
+        
+	},
+    "HF": {
+        "ref_nbasis": 100,
+        "gamess": {
+            "scaling_natom": "-0.76",
+            "scaling_nbasis": "4.00",
+            "prefactor": "21.00",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        },
+        "gaussian": {
+            "scaling_natom": "-0.60",
+            "scaling_nbasis": "3.29",
+            "prefactor": "16.20",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        },
+        "nwchem": {
+            "scaling_natom": "-0.51",
+            "scaling_nbasis": "3.53",
+            "prefactor": "27.36",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        },
+        "orca": {
+            "scaling_natom": "-0.19",
+            "scaling_nbasis": "3.12",
+            "prefactor": "7.42",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        },
+        "psi": {
+            "scaling_natom": "0.34",
+            "scaling_nbasis": "2.49",
+            "prefactor": "2.59",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        },
+        "qchem": {
+            "scaling_natom": "-1.04",
+            "scaling_nbasis": "3.30",
+            "prefactor": "30.68",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        }
+    },
+    "DFT-GGA": {
+        "ref_nbasis": 100,
+        "gamess": {
+            "scaling_natom": "-0.40",
+            "scaling_nbasis": "2.84",
+            "prefactor": "88.14",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        },
+        "gaussian": {
+            "scaling_natom": "-0.05",
+            "scaling_nbasis": "1.38",
+            "prefactor": "44.87",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        },
+        "nwchem": {
+            "scaling_natom": "-0.42",
+            "scaling_nbasis": "2.75",
+            "prefactor": "77.09",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        },
+        "orca": {
+            "scaling_natom": "-2.01",
+            "scaling_nbasis": "4.65",
+            "prefactor": "1140.78",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        },
+        "psi": {
+            "scaling_natom": "0.33",
+            "scaling_nbasis": "1.93",
+            "prefactor": "8.79",
+            "hessian": "numerical"
+        },
+        "qchem": {
+            "scaling_natom": "-0.37",
+            "scaling_nbasis": "2.15",
+            "prefactor": "12.38",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        }
+    },
+    "DFT-HYBRID": {
+        "ref_nbasis": 100,
+        "gamess": {
+            "scaling_natom": "-0.48",
+            "scaling_nbasis": "3.06",
+            "prefactor": "73.57",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        },
+        "gaussian": {
+            "scaling_natom": "-0.28",
+            "scaling_nbasis": "2.42",
+            "prefactor": "28.37",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        },
+        "nwchem": {
+            "scaling_natom": "-0.35",
+            "scaling_nbasis": "2.78",
+            "prefactor": "48.62",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        },
+        "orca": {
+            "scaling_natom": "0.16",
+            "scaling_nbasis": "2.68",
+            "prefactor": "4.61",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        },
+        "psi": {
+            "scaling_natom": "0.50",
+            "scaling_nbasis": "1.91",
+            "prefactor": "5.50",
+            "hessian": "numerical"
+        },
+        "qchem": {
+            "scaling_natom": "-0.59",
+            "scaling_nbasis": "2.72",
+            "prefactor": "21.64",
+            "hessian": "analytical",
+            "hessian_factor": "20"
+        }
+    },
+    "RI-HF": {
+        "ref_nbasis": 100,
+        "nwchem": {
+            "scaling_natom": "-0.51",
+            "scaling_nbasis": "3.53",
+            "prefactor": "27.36",
+            "hessian": "analytical",
+            "hessian_factor": "150"
+        },
+        "orca": {
+            "scaling_natom": "0.72",
+            "scaling_nbasis": "0.80",
+            "prefactor": "5.57",
+            "hessian": "analytical",
+            "hessian_factor": "10"
+        },
+        "psi": {
+            "scaling_natom": "1.72",
+            "scaling_nbasis": "1.09",
+            "prefactor": "0.04",
+            "hessian": "analytical",
+            "hessian_factor": "150"
+        }
+    },
+    "RI-DFT-GGA": {
+        "ref_nbasis": 100,
+        "nwchem": {
+            "scaling_natom": "0.96",
+            "scaling_nbasis": "0.95",
+            "prefactor": "3.73",
+            "hessian": "analytical",
+            "hessian_factor": "150"
+        },
+        "orca": {
+            "scaling_natom": "0.78",
+            "scaling_nbasis": "0.58",
+            "prefactor": "1.42",
+            "hessian": "analytical",
+            "hessian_factor": "10"
+        },
+        "psi": {
+            "scaling_natom": "0.99",
+            "scaling_nbasis": "1.19",
+            "prefactor": "1.12",
+            "hessian": "numerical"
+        }
+    },
+    "RI-DFT-HYBRID": {
+        "ref_nbasis": 100,
+        "nwchem": {
+            "scaling_natom": "0.58",
+            "scaling_nbasis": "2.06",
+            "prefactor": "6.07",
+            "hessian": "analytical",
+            "hessian_factor": "150"
+        },
+        "orca": {
+            "scaling_natom": "0.86",
+            "scaling_nbasis": "1.12",
+            "prefactor": "1.61",
+            "hessian": "analytical",
+            "hessian_factor": "10"
+        },
+        "psi": {
+            "scaling_natom": "1.21",
+            "scaling_nbasis": "1.27",
+            "prefactor": "0.53",
+            "hessian": "numerical"
+        }
+    },
+	"_comment": "Approximate basis function cutoff after which direct SCF is recommended",
+	"direct_scf_thresholds" : {
+		"gamess": 250,
+		"nwchem": 200,
+		"orca": 300
+	},
+	"_comment": "Approximate number of optimization steps per atom",
+	"nsteps_per_atom" : {
+		"gamess": 2.4,
+		"gaussian": 0.6,
+		"nwchem": 1.1,
+		"orca": 0.6,
+		"psi": 0.6,
+		"qchem": 0.6
+	},
+	"_comment": "Approximate ratio of NMR/GIOA time to scf",
+	"giao_factor" : {
+		"gamess": 100,
+		"gaussian": 3,
+		"nwchem": 3,
+		"orca": 3,
+		"qchem": 3
+	}	
+}

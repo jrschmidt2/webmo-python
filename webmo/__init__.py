@@ -1,2 +1,2 @@
-from .webmo_rest import WebMOREST
-__version__ = "1.7.0"
+from .webmo_rest import WebMOREST, UnsupportedServerError
+__version__ = "1.8.0"
