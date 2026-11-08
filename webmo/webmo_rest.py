@@ -149,6 +149,14 @@ class WebMOREST:
         """The token of this REST session."""
         return self._auth['token']
 
+    def detach(self):
+        """Gives up this object's ownership of its REST session, so that close() and deleting the
+        object leave the session open (e.g. to save the token for later use, or hand it to another
+        process). Returns the session token.
+        """
+        self._owns_session = False
+        return self.token
+
     def close(self):
         """Shuts down any image renderer and Jupyter callback listener, and ends the REST session if
         this object created it (by logging in with a password). Calling it again does nothing.
