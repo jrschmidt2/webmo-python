@@ -34,7 +34,7 @@ setup(
   ],
   extras_require={
       "spectrum": ["numpy"],
-      "util": ["PubChemPy"],
+      "util": ["PubChemPy", "numpy"],  #webmo.util imports numpy
       "gui": ["questionary", "ipywidgets"],
       "render": ["playwright"],  #headless image rendering; also run: python -m playwright install chromium
       "all": ["numpy", "PubChemPy", "questionary", "ipywidgets"]

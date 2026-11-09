@@ -504,13 +504,14 @@ class WebMOREST:
     def get_job_archive(self, *job_numbers):
         """Returns a WebMO archive from the specified job(s).
         
-        This call generates and returns a binary WebMO archive (tar/zip) file from the specified job(s).
+        This call generates and returns a binary WebMO archive (a gzipped tar file, .tgz) of the specified
+        job(s), which WebMO can import.
         
         Arguments:
             *job_numbers(int): The job(s) for which to generate the archive
             
         Returns:
-            The raw data (as a string) of the WebMO archive, appropriate for saving to disk
+            The archive as bytes, to be saved in binary mode (e.g. open(name, "wb"))
         """
 
         self._check_valid_job_list(job_numbers)
@@ -520,7 +521,7 @@ class WebMOREST:
         params.update({'jobNumber' : ",".join(str(job_number) for job_number in job_numbers)})
         r = requests.get(self._base_url + "/jobs/archive" % (), params=params, timeout=self._timeout)
         WebMOREST._check_status(r)
-        return r.text
+        return r.content
         
     def get_job_spreadsheet(self, *job_numbers):
         """Returns a spreadsheet summary of the specified job(s).
