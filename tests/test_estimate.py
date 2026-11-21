@@ -125,6 +125,9 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(est.stoichiometry_from_geometry("6 0 0 0\n17 1 0 0\n1 0 1 0", rows), "CHCl")
         self.assertEqual(est.stoichiometry_from_geometry("C1 0 0 0\nX 0 0 1\nH2 1 0 0\ncl 0 1 0", rows), "CHCl")
         self.assertEqual(est.stoichiometry_from_geometry("", rows), "")
+        xtb = "$coord angs\n    0.000000    0.000000    0.117000   O\n    1.500000    0.757000   -0.467000   H\n" \
+              "    0.000000   -0.757000   -0.467000   h\n$end"
+        self.assertEqual(est.stoichiometry_from_geometry(xtb, rows), "H2O", "xtb $coord block: x y z element")
 
     def test_gaussian_theory_aliases_and_unrestricted(self):
         template = {"variables": {

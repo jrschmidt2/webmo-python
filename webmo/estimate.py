@@ -237,13 +237,16 @@ def option_label(variable, value):
 
 
 def stoichiometry_from_geometry(geometry, atom_rows):
-    """Formula (C, H first) from engine-formatted geometry text: first column is a symbol or atomic number."""
+    """Formula (C, H first) from engine-formatted geometry text: first column is a symbol or atomic number,
+    except in an xtb $coord block (x y z element)."""
     symbols = list(atom_rows)  # periodic-table order, so index + 1 is the atomic number
     counts = {}
     for line in str(geometry).splitlines():
         tokens = line.replace(",", " ").split()
-        if not tokens:
+        if not tokens or tokens[0].startswith("$"):  # xtb/Turbomole data groups ($coord, $end, ...)
             continue
+        if len(tokens) >= 4 and all(re.fullmatch(r"[-+]?\d*\.\d*(?:[eEdD][-+]?\d+)?", t) for t in tokens[:3]):
+            tokens = tokens[3:]  # x y z element ($coord)
         token = re.sub(r"[^A-Za-z0-9]", "", tokens[0])
         symbol = None
         if token.isdigit():

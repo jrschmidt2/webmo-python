@@ -1,11 +1,41 @@
 import numpy as np
 
-def xyz_from_name(name, include_atomic_number=False):
+def xtb_geometry(xyz):
+    """Converts XYZ-formatted Cartesian coordinates to the geometry xtb's templates expect.
+
+    xtb reads its coordinates from a $coord block in the input file, with each atom as x y z element
+    (in Angstrom, with "$coord angs"); plain XYZ lines there leave xtb without coordinates. This gives
+    the block WebMO's own xtb job page writes. Lines with the atomic number after the element (as for
+    GAMESS) are accepted too. Text that already has a $coord block is returned with blank lines removed.
+
+    Arguments:
+        xyz(str): XYZ-formatted coordinates, one atom per line (element x y z, in Angstrom).
+
+    Returns:
+        A string containing the "$coord angs" block, one atom per line.
+    """
+    if "$coord" in xyz:
+        return "\n".join(line for line in xyz.strip().splitlines() if line.strip())
+    lines = ["$coord angs"]
+    for line in xyz.splitlines():
+        tokens = line.split()
+        if not tokens:
+            continue
+        if len(tokens) == 5:  # element, atomic number, x y z
+            tokens = [tokens[0]] + tokens[2:]
+        if len(tokens) != 4:
+            raise ValueError("Not an XYZ line (element x y z): %r" % line.strip()[:80])
+        element, x, y, z = tokens[0], float(tokens[1]), float(tokens[2]), float(tokens[3])
+        lines.append(f"{x:12.6f}{y:12.6f}{z:12.6f}   {element}")
+    return "\n".join(lines)  # no blank line: xtb stops reading $coord at one
+
+def xyz_from_name(name, include_atomic_number=False, xtb_format=False):
     """Obtains an XYZ-formatted geometry for the molecule name via PubChem lookup.
 
     Arguments:
         name(str): The name of the molecule.
         include_atomic_number(bool): Whether to include the atomic number as well in the XYZ output (e.g. for GAMESS formatted Cartesian coordinates)
+        xtb_format(bool): Whether to return the geometry as an xtb $coord block instead (see xtb_geometry)
 
     Returns:
         A string containing the molecule's XYZ-formatted geometry.
@@ -28,8 +58,8 @@ def xyz_from_name(name, include_atomic_number=False):
             geom += f"{element}\t{number:d}\t{x:f}\t{y:f}\t{z:f}\n"
         else:
             geom += f"{element}\t{x:f}\t{y:f}\t{z:f}\n"
-        
-    return geom
+
+    return xtb_geometry(geom) if xtb_format else geom
 
 def get_energy(results, include_units=False):
     """Returns the molecular energy from the job results. This should correspond to the ground state energy
@@ -93,11 +123,12 @@ def get_energies(results, include_units=False):
 
     return energies
 
-def get_geometry(results):
+def get_geometry(results, xtb_format=False):
     """Returns the XYZ-formatted final geometry from the job results.
 
     Arguments:
         results(dict): A dictionary of job results, obtained from get_job_results.
+        xtb_format(bool): Whether to return the geometry as an xtb $coord block instead (see xtb_geometry)
 
     Returns:
         The XYZ-formatted final geometry as a string.
@@ -115,7 +146,7 @@ def get_geometry(results):
         geom += f"{element}\t{x:f}\t{y:f}\t{z:f}\n"
         index += 3
 
-    return geom
+    return xtb_geometry(geom) if xtb_format else geom
 
 def get_stoichiometry(results):
     """Returns the stoichiometry from the job results.
