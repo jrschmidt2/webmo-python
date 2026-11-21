@@ -56,3 +56,20 @@ Recommendations are made only for settings not already in `variables`. Without `
 a coordinate scan, pass `scan_points` (and `scan_optimized=True` for relaxed scans). WebMO
 estimates common job types, methods and basis sets, for elements up to krypton; otherwise
 `result["seconds"]` is -1. The timing data is fetched once per `WebMOREST` object.
+
+## Sessions and credentials
+
+`WebMOREST(base_url, username, password)` logs in and creates a REST session, by default for 24 hours.
+On WebMO 27 Enterprise, a client may ask for a longer, labelled session, which the user can see and
+revoke on the Connected Apps tab of Edit User; the server caps its length at the administrator's
+"Maximum REST session length (days)":
+
+```python
+rest = WebMOREST(base_url, "alice", password, expiration=90 * 24, label="My script")
+print(rest.expires)  # the session's expiration time (Unix time)
+```
+
+The session credentials are sent in `X-WebMO-Username` / `X-WebMO-Token` request headers when the
+server supports them (WebMO 27 and later), so they don't appear in URLs or web server logs; with older
+servers they are sent as URL parameters. This is checked once, on the first request; pass
+`auth_headers=False` to always use URL parameters.

@@ -1,2 +1,2 @@
 from .webmo_rest import WebMOREST, UnsupportedServerError, SessionExpiredError, MFARequiredError
-__version__ = "1.11.2"
+__version__ = "1.12.0"

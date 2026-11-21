@@ -177,11 +177,18 @@ def load(path=None, require_credentials=True):
 
 
 def token_is_valid(cfg, timeout=30):
-    """Whether the saved WEBMO_TOKEN is still accepted by the server (one request)."""
+    """Whether the saved WEBMO_TOKEN is still accepted by the server (one request, plus a check of
+    whether the server takes credentials in headers)."""
+    return _token_session(cfg, timeout) is not None
+
+
+def _token_session(cfg, timeout):
+    #a WebMOREST for the saved token if the server still accepts it, else None
     if not cfg.token:
-        return False
-    r = requests.get(cfg.url + "/folders", params={"username": cfg.username, "token": cfg.token}, timeout=timeout)
-    return r.status_code != 401
+        return None
+    rest = WebMOREST.from_token(cfg.url, cfg.username, cfg.token, timeout=timeout)
+    r = requests.get(cfg.url + "/folders", params=rest._auth, headers=rest._auth_headers, timeout=timeout)
+    return rest if r.status_code != 401 else None
 
 
 def connect(cfg=None, timeout=None, interactive=False, hours=24):
@@ -202,8 +209,10 @@ def connect(cfg=None, timeout=None, interactive=False, hours=24):
     """
     cfg = cfg or load()
     if cfg.token:
-        if token_is_valid(cfg, timeout=timeout or 30):
-            return WebMOREST.from_token(cfg.url, cfg.username, cfg.token, timeout=timeout)
+        rest = _token_session(cfg, timeout or 30)
+        if rest is not None:
+            rest._timeout = timeout
+            return rest
         if not cfg.has_password():
             raise SessionExpiredError("The saved WEBMO_TOKEN in %s was rejected or has expired, and no password "
                                       "is set" % cfg.path)

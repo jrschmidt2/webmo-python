@@ -154,6 +154,8 @@ class ConnectTest(TempDirTest):
                 return self.login_response
             if method == "delete":
                 return FakeResponse(200, {})
+            if url.endswith("/status"):
+                return FakeResponse(200, {})  # an older server: no authHeaders, so credentials go in parameters
             ok = kwargs["params"].get("token") in self.valid_tokens
             return FakeResponse(200, {"folders": []}) if ok else FakeResponse(401, {"error": "Authentication failed"})
         return call
@@ -164,7 +166,7 @@ class ConnectTest(TempDirTest):
     def test_valid_token_is_used(self):
         rest = config.connect(config.load(self.env(password="pw", token="GOOD")))
         self.assertEqual(rest.token, "GOOD")
-        self.assertEqual(self.methods(), [("get", "/folders")])
+        self.assertEqual(self.methods(), [("get", "/status"), ("get", "/folders")])  # header check, then the token
         rest.close()
         self.assertNotIn(("delete", "/sessions"), self.methods())  # the saved token stays valid
 

@@ -52,12 +52,14 @@ class WebMOREST:
 
     _owns_session = False
     _timeout = None
+    _expires = None
+    _use_auth_headers = None  #None until known: True sends X-WebMO-Username/X-WebMO-Token headers
     _init_javascript = True
     _callback_listener = None
     _renderer = None
 
     def __init__(self, base_url, username, password="", expiration=24, totp="", recovery_code="", timeout=None,
-                 interactive=True):
+                 interactive=True, label="", auth_headers=None):
         """Constructor for WebMOREST
 
         This constructor generates a WebMOREST object and also generates and stores a newly
@@ -68,7 +70,8 @@ class WebMOREST:
             username(str): The WebMO username
             password(str, optional): The WebMO password; if omitted, this is supplied interactively
                 (unless interactive is False)
-            expiration(int, optional): The expiration time (in hours) of the REST session token
+            expiration(int, optional): The expiration time (in hours) of the REST session token; over 24
+                requests a long-lived session (WebMO 27 Enterprise), capped by the server's maxSessionDays
             totp(str, optional): The current TOTP code from an authenticator app, for users with MFA enabled;
                 if omitted and MFA is required, a TOTP or recovery code is supplied interactively
                 (unless interactive is False)
@@ -77,6 +80,10 @@ class WebMOREST:
                 the requests package: a number, or (connect, read); the default None waits indefinitely
             interactive(bool, optional): Whether to prompt for a missing password or MFA code; False
                 (e.g. in a server, or a script without a terminal) raises an exception instead
+            label(str, optional): A name for a long-lived session (e.g. "Claude"), shown to the user
+                under Connected Apps, from which it can be revoked; the server's default is "API"
+            auth_headers(bool, optional): Whether to send the session credentials in request headers
+                rather than in the URL; the default None uses headers if the server supports them
 
         Returns:
             object: The newly constructed WebMO object
@@ -96,6 +103,8 @@ class WebMOREST:
         #obtain a REST token using the specified credentials
         login={'username' : username, 'password' : password, 'expiration' : expiration,
             'totp' : totp, 'recoveryCode' : recovery_code}
+        if label:
+            login['label'] = label
         r = requests.post(base_url + '/sessions', data=login, timeout=timeout)
         #prompt for an MFA code if required but not specified; a request without a code
         #does not count as a failed MFA attempt, and a lockout is reported as an error below
@@ -112,12 +121,16 @@ class WebMOREST:
         WebMOREST._check_status(r, login=True) #raise an exception if there is a problem with the request
 
         self._base_url = base_url
-        self._auth=r.json() #save an authorization token need to authenticate future REST requests
+        session = r.json()
+        self._credentials = {'username': session['username'], 'token': session['token']}
+        #servers older than WebMO 27 don't report the expiration time
+        self._expires = session.get('expires') or time.time() + expiration * 3600
         self._timeout = timeout
+        self._use_auth_headers = auth_headers
         self._owns_session = True
 
     @classmethod
-    def from_token(cls, base_url, username, token, timeout=None):
+    def from_token(cls, base_url, username, token, timeout=None, auth_headers=None, expires=None):
         """Returns a WebMOREST object that uses an existing REST session.
 
         No request is made, so an invalid or expired token is reported (as SessionExpiredError) by
@@ -129,25 +142,69 @@ class WebMOREST:
             username(str): The WebMO username the session belongs to
             token(str): The REST session token
             timeout(float or tuple, optional): The timeout of each REST request, as for the constructor
+            auth_headers(bool, optional): As for the constructor; with the default None, whether the
+                server supports header credentials is checked on the first request
+            expires(float, optional): The session's expiration time (Unix time), if known
 
         Returns:
             object: The new WebMOREST object
         """
         self = cls.__new__(cls)
         self._base_url = base_url
-        self._auth = {'username': username, 'token': token}
+        self._credentials = {'username': username, 'token': token}
         self._timeout = timeout
+        self._use_auth_headers = auth_headers
+        self._expires = expires
         return self
 
     @property
     def username(self):
         """The WebMO username of this REST session."""
-        return self._auth['username']
+        return self._credentials['username']
 
     @property
     def token(self):
         """The token of this REST session."""
-        return self._auth['token']
+        return self._credentials['token']
+
+    @property
+    def expires(self):
+        """When this REST session expires (Unix time), or None if unknown (e.g. from_token without expires)."""
+        return self._expires
+
+    @property
+    def auth_headers(self):
+        """Whether the session credentials are sent in request headers (True) or the URL (False)."""
+        return self._uses_auth_headers()
+
+    def _uses_auth_headers(self):
+        #ask the server once: WebMO 27+ reports authHeaders when the X-WebMO-Probe header reaches it,
+        #which also shows that no proxy on the way drops custom headers
+        if self._use_auth_headers is None:
+            try:
+                r = requests.get(self._base_url + "/status", headers={'X-WebMO-Probe': '1'}, timeout=self._timeout or 30)
+                self._use_auth_headers = bool(r.status_code == 200 and r.json().get('authHeaders'))
+            except Exception:
+                self._use_auth_headers = False
+        return self._use_auth_headers
+
+    @property
+    def _auth(self):
+        #the credentials to send as request parameters: none when they go in headers
+        return {} if self._uses_auth_headers() else dict(self._credentials)
+
+    @_auth.setter
+    def _auth(self, credentials):
+        #kept for code that sets the credentials directly: they are then sent as parameters
+        self._credentials = dict(credentials)
+        self._use_auth_headers = False
+
+    @property
+    def _auth_headers(self):
+        #the credentials to send as request headers: none when they go in parameters
+        if not self._uses_auth_headers():
+            return {}
+        return {'X-WebMO-Username': self._credentials['username'], 'X-WebMO-Token': self._credentials['token']}
 
     def detach(self):
         """Gives up this object's ownership of its REST session, so that close() and deleting the
@@ -165,11 +222,14 @@ class WebMOREST:
             listener, self._callback_listener = self._callback_listener, None
             listener.close()
         self.close_renderer()
-        if self._owns_session and hasattr(self, '_auth'):
+        if self._owns_session and hasattr(self, '_credentials'):
             self._owns_session = False
             #a failed logout is not an error: the session expires anyway
             try:
-                requests.delete(self._base_url + '/sessions', params=self._auth, timeout=self._timeout or 30)
+                if self._use_auth_headers:
+                    requests.delete(self._base_url + '/sessions', headers=self._auth_headers, timeout=self._timeout or 30)
+                else:
+                    requests.delete(self._base_url + '/sessions', params=self._credentials, timeout=self._timeout or 30)
             except Exception:
                 pass
 
@@ -204,7 +264,7 @@ class WebMOREST:
             A list of users
         """
         
-        r = requests.get(self._base_url + "/users", params=self._auth, timeout=self._timeout)
+        r = requests.get(self._base_url + "/users", params=self._auth, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()["users"]
         
@@ -221,7 +281,7 @@ class WebMOREST:
             A JSON formatted string summarizing the user information
         """
         
-        r = requests.get(self._base_url + "/users/%s" % username, params=self._auth, timeout=self._timeout)
+        r = requests.get(self._base_url + "/users/%s" % username, params=self._auth, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()
 
@@ -238,7 +298,7 @@ class WebMOREST:
             A list of groups
         """
         
-        r = requests.get(self._base_url + "/groups", params=self._auth, timeout=self._timeout)
+        r = requests.get(self._base_url + "/groups", params=self._auth, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()["groups"]
         
@@ -255,7 +315,7 @@ class WebMOREST:
             A JSON formatted string summarizing the group information
         """
         
-        r = requests.get(self._base_url + "/groups/%s" % groupname, params=self._auth, timeout=self._timeout)
+        r = requests.get(self._base_url + "/groups/%s" % groupname, params=self._auth, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()
         
@@ -279,7 +339,7 @@ class WebMOREST:
         #append other relevant parameters
         params = self._auth.copy()
         params.update({'user' : target_user})
-        r = requests.get(self._base_url + "/folders", params=params, timeout=self._timeout)
+        r = requests.get(self._base_url + "/folders", params=params, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()["folders"]
     
@@ -305,7 +365,7 @@ class WebMOREST:
         #append other relevant paramters
         params = self._auth.copy()
         params.update({'engine' : engine, 'status' : status, 'folderID' : folder_id, 'jobName' : job_name, 'user' : target_user})
-        r = requests.get(self._base_url + '/jobs', params=params, timeout=self._timeout)
+        r = requests.get(self._base_url + '/jobs', params=params, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()["jobs"]
         
@@ -329,7 +389,7 @@ class WebMOREST:
         self._check_valid_job_list(job_numbers)
 
         if len(job_numbers) == 1:
-            r = requests.get(self._base_url + "/jobs/%d" % job_numbers[0], params=self._auth, timeout=self._timeout)
+            r = requests.get(self._base_url + "/jobs/%d" % job_numbers[0], params=self._auth, headers=self._auth_headers, timeout=self._timeout)
             WebMOREST._check_status(r)
             return r.json()
         return self._get_job_infos(job_numbers)
@@ -339,7 +399,7 @@ class WebMOREST:
         if getattr(self, '_multi_job_info', True):
             params = self._auth.copy()
             params.update({'jobNumber': ",".join(str(int(job_number)) for job_number in job_numbers)})
-            r = requests.get(self._base_url + "/jobs/info", params=params, timeout=self._timeout)
+            r = requests.get(self._base_url + "/jobs/info", params=params, headers=self._auth_headers, timeout=self._timeout)
             if r.status_code not in (403, 404):
                 WebMOREST._check_status(r)
                 return r.json()
@@ -348,7 +408,7 @@ class WebMOREST:
 
         info = []
         for job_number in job_numbers:
-            r = requests.get(self._base_url + "/jobs/%d" % job_number, params=self._auth, timeout=self._timeout)
+            r = requests.get(self._base_url + "/jobs/%d" % job_number, params=self._auth, headers=self._auth_headers, timeout=self._timeout)
             if r.status_code in (403, 404):
                 try:
                     error = r.json()["error"]
@@ -381,13 +441,13 @@ class WebMOREST:
 
         if (len(job_numbers) == 1):
             #handle case of single job, return JSON dictionary for single job
-            r = requests.get(self._base_url + "/jobs/%d/results" % job_numbers[0], params=self._auth, timeout=self._timeout)
+            r = requests.get(self._base_url + "/jobs/%d/results" % job_numbers[0], params=self._auth, headers=self._auth_headers, timeout=self._timeout)
         else:
             #handle case of multiple jobs, return JSON array of dictionaries
             #append other relevant parameters
             params = self._auth.copy()
             params.update({'jobNumber' : ",".join(str(job_number) for job_number in job_numbers)})
-            r = requests.get(self._base_url + "/jobs/results", params=params, timeout=self._timeout)
+            r = requests.get(self._base_url + "/jobs/results", params=params, headers=self._auth_headers, timeout=self._timeout)
 
         WebMOREST._check_status(r)
         return r.json()
@@ -404,7 +464,7 @@ class WebMOREST:
             A string containing XYZ formatted optimized geometry
         """
         
-        r = requests.get(self._base_url + "/jobs/%d/geometry" % job_number, params=self._auth, timeout=self._timeout)
+        r = requests.get(self._base_url + "/jobs/%d/geometry" % job_number, params=self._auth, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()["xyz"]
         
@@ -421,7 +481,7 @@ class WebMOREST:
             A string containing the contents of the raw output file
         """
         
-        r = requests.get(self._base_url + "/jobs/%d/raw_output" % job_number, params=self._auth, timeout=self._timeout)
+        r = requests.get(self._base_url + "/jobs/%d/raw_output" % job_number, params=self._auth, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.text
 
@@ -493,7 +553,7 @@ class WebMOREST:
 
     def _get_output_lines(self, job_number, params):
         params.update(self._auth)
-        r = requests.get(self._base_url + "/jobs/%d/raw_output" % job_number, params=params, timeout=self._timeout)
+        r = requests.get(self._base_url + "/jobs/%d/raw_output" % job_number, params=params, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         if not r.headers.get("Content-Type", "").startswith("application/json"):
             #older servers ignore the parameters and return the whole file
@@ -519,7 +579,7 @@ class WebMOREST:
         #append other relevant parameters
         params = self._auth.copy()
         params.update({'jobNumber' : ",".join(str(job_number) for job_number in job_numbers)})
-        r = requests.get(self._base_url + "/jobs/archive" % (), params=params, timeout=self._timeout)
+        r = requests.get(self._base_url + "/jobs/archive" % (), params=params, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.content
         
@@ -540,7 +600,7 @@ class WebMOREST:
         #append other relevant parameters
         params = self._auth.copy()
         params.update({'jobNumber' : ",".join(str(job_number) for job_number in job_numbers)})
-        r = requests.get(self._base_url + "/jobs/spreadsheet" % (), params=params, timeout=self._timeout)
+        r = requests.get(self._base_url + "/jobs/spreadsheet" % (), params=params, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.text
         
@@ -553,7 +613,7 @@ class WebMOREST:
             job_number(int): The job to delete
         """
         
-        r = requests.delete(self._base_url + "/jobs/%d" % job_number, params=self._auth, timeout=self._timeout)
+        r = requests.delete(self._base_url + "/jobs/%d" % job_number, params=self._auth, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         
     def import_job(self, job_name, output_filename, engine):
@@ -574,7 +634,7 @@ class WebMOREST:
         params = self._auth.copy()
         params.update({'jobName' : job_name, 'engine' : engine})
         output_file = {'outputFile' : ('output.log', open(output_filename, 'rb'), 'text/plain')}
-        r = requests.post(self._base_url + '/jobs', data=params, files=output_file, timeout=self._timeout)
+        r = requests.post(self._base_url + '/jobs', data=params, files=output_file, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()["jobNumber"]
         
@@ -601,7 +661,7 @@ class WebMOREST:
         params = self._auth.copy()
         params.update({'jobName' : job_name, 'engine' : engine, 'inputFile': input_contents,
             'queue': queue, 'nodes': nodes, 'ppn': ppn, **kwargs})
-        r = requests.post(self._base_url + '/jobs', data=params, timeout=self._timeout)
+        r = requests.post(self._base_url + '/jobs', data=params, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()["jobNumber"]
         
@@ -620,7 +680,7 @@ class WebMOREST:
             A dictionary of available templates, {name: template}; each template includes its 'name'
         """
 
-        r = requests.get(self._base_url + "/templates/%s" % engine, params=self._auth, timeout=self._timeout)
+        r = requests.get(self._base_url + "/templates/%s" % engine, params=self._auth, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         templates = r.json()["templates"]
         for name, template in templates.items():
@@ -657,7 +717,7 @@ class WebMOREST:
         #append other relevant paramters
         params = self._auth.copy()
         params.update({'variables' : json.dumps(amend_variables)})
-        r = requests.get(self._base_url + "/templates/%s" % template['id'], params=params, timeout=self._timeout)
+        r = requests.get(self._base_url + "/templates/%s" % template['id'], params=params, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.text
 
@@ -716,7 +776,7 @@ class WebMOREST:
         #append other relevant parameters
         params = self._auth.copy()
         params.update({'user' : target_user})
-        r = requests.get(self._base_url + "/engines", params=params, timeout=self._timeout)
+        r = requests.get(self._base_url + "/engines", params=params, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()["engines"]
 
@@ -842,7 +902,7 @@ class WebMOREST:
         """
         from math import sqrt
 
-        r = requests.get(self._base_url + "/jobs/%d/geometry" % job_number, params=self._auth, timeout=self._timeout)
+        r = requests.get(self._base_url + "/jobs/%d/geometry" % job_number, params=self._auth, headers=self._auth_headers, timeout=self._timeout)
         WebMOREST._check_status(r)
         geometryJSON = json.dumps(r.json())
         geometryJSON = geometryJSON.replace("\\", "\\\\")
@@ -978,7 +1038,7 @@ class WebMOREST:
             A JSON formatted string summarizing the status information
         """
         
-        r = requests.get(self._base_url + "/status", params=self._auth, timeout=self._timeout)
+        r = requests.get(self._base_url + "/status", timeout=self._timeout)
         WebMOREST._check_status(r)
         return r.json()
         
